@@ -11,6 +11,9 @@ from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
 
+# Get the directory where this script is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 from flask import Flask, request, jsonify, send_file, Response
 from flask_socketio import SocketIO, emit, disconnect
 from flask_cors import CORS
@@ -28,8 +31,8 @@ app = Flask(__name__)
 config = Config.from_env()
 app.config["SECRET_KEY"] = config.server.secret_key
 
-# Enable CORS
-CORS(app)
+# Enable CORS for all origins including 'null' (file:// protocol)
+CORS(app, resources={r"/*": {"origins": "*", "allow_headers": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}})
 
 # Initialize Socket.IO
 # Using threading mode for development stability
@@ -689,8 +692,10 @@ def upload_session_video(session_id):
     if not session:
         return jsonify({'error': 'Session not found'}), 404
 
-    # Get video storage path from environment
-    video_storage_path = os.getenv('VIDEO_STORAGE_PATH', '/app/data/videos')
+    # Get video storage path from environment, resolve relative to BASE_DIR
+    video_storage_path = os.getenv('VIDEO_STORAGE_PATH', './data/videos')
+    if not os.path.isabs(video_storage_path):
+        video_storage_path = os.path.join(BASE_DIR, video_storage_path)
 
     # Create videos directory if it doesn't exist
     os.makedirs(video_storage_path, exist_ok=True)
@@ -740,8 +745,10 @@ def get_session_video(session_id):
     if not session.video_file_path:
         return jsonify({'error': 'No video file for this session'}), 404
 
-    # Get video storage path from environment
-    video_storage_path = os.getenv('VIDEO_STORAGE_PATH', '/app/data/videos')
+    # Get video storage path from environment, resolve relative to BASE_DIR
+    video_storage_path = os.getenv('VIDEO_STORAGE_PATH', './data/videos')
+    if not os.path.isabs(video_storage_path):
+        video_storage_path = os.path.join(BASE_DIR, video_storage_path)
     file_path = os.path.join(video_storage_path, session.video_file_path)
 
     # Check if file exists on disk
