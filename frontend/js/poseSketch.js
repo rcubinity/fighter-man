@@ -38,6 +38,30 @@ function createPoseSketch(containerId, options = {}) {
 
     // p5.js instance mode sketch
     const sketch = (p) => {
+        let videoFailed = false;
+        let setupComplete = false;
+        let fallbackTimeout = null;
+
+        // Fallback function to mark sketch ready without video
+        function markReadyWithoutVideo(reason) {
+            if (poseSketchReady) return; // Already ready
+
+            console.warn('[PoseSketch] ' + reason);
+            videoFailed = true;
+
+            p.background(0);
+            p.fill(255, 100, 100);
+            p.textAlign(p.CENTER, p.CENTER);
+            p.textSize(18);
+            p.text('Camera unavailable', p.width/2, p.height/2 - 20);
+            p.textSize(14);
+            p.fill(180);
+            p.text('Recording will continue without video', p.width/2, p.height/2 + 20);
+
+            isRunning = true;
+            poseSketchReady = true;
+            console.log('[PoseSketch] Marked ready without video/pose detection');
+        }
 
         // Setup - create canvas and video, then load model
         p.setup = function() {
@@ -57,39 +81,77 @@ function createPoseSketch(containerId, options = {}) {
             p.textSize(20);
             p.text('Starting camera...', p.width/2, p.height/2);
 
-            // Create video capture - wait for it to be ready
-            video = p.createCapture(p.VIDEO, function() {
-                console.log('[PoseSketch] Video capture ready, now loading ml5...');
+            // Set a fallback timeout - if video doesn't initialize within 5 seconds,
+            // mark as ready without video so recording can proceed
+            fallbackTimeout = setTimeout(() => {
+                if (!poseSketchReady) {
+                    markReadyWithoutVideo('Camera timeout - proceeding without video');
+                }
+            }, 5000);
 
-                // Update loading message
-                p.background(0);
-                p.fill(255);
-                p.text('Loading ML5 model...', p.width/2, p.height/2);
+            // Create video capture
+            try {
+                video = p.createCapture(p.VIDEO, function() {
+                    // Clear fallback timeout since video is ready
+                    if (fallbackTimeout) {
+                        clearTimeout(fallbackTimeout);
+                        fallbackTimeout = null;
+                    }
 
-                // Load ml5 bodyPose model using callback pattern (matches working example)
-                console.log('[PoseSketch] Loading ml5.bodyPose...');
+                    console.log('[PoseSketch] Video capture ready, now loading ml5...');
 
-                // Use callback pattern instead of Promise/await
-                bodyPose = ml5.bodyPose('MoveNet', function() {
-                    console.log('[PoseSketch] ml5.bodyPose model loaded via callback');
+                    // Update loading message
+                    p.background(0);
+                    p.fill(255);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(20);
+                    p.text('Loading ML5 model...', p.width/2, p.height/2);
 
-                    // Check video state
-                    console.log('[PoseSketch] Video element:', video.elt);
-                    console.log('[PoseSketch] Video readyState:', video.elt.readyState);
-                    console.log('[PoseSketch] Video dimensions:', video.elt.videoWidth, 'x', video.elt.videoHeight);
+                    // Load ml5 bodyPose model using callback pattern
+                    console.log('[PoseSketch] Loading ml5.bodyPose...');
 
-                    // Start pose detection - pass the p5.MediaElement (like working example)
-                    bodyPose.detectStart(video, gotPoses);
-                    modelLoaded = true;
-                    isRunning = true;
-                    poseSketchReady = true;
+                    // Set another timeout for ML5 model loading
+                    const ml5Timeout = setTimeout(() => {
+                        if (!poseSketchReady) {
+                            markReadyWithoutVideo('ML5 model timeout - proceeding with video only');
+                            // Still try to draw video even without pose detection
+                            isRunning = true;
+                        }
+                    }, 10000);
 
-                    console.log('[PoseSketch] Pose detection started');
+                    bodyPose = ml5.bodyPose('MoveNet', function() {
+                        clearTimeout(ml5Timeout);
+
+                        if (poseSketchReady) return; // Already marked ready by timeout
+
+                        console.log('[PoseSketch] ml5.bodyPose model loaded via callback');
+
+                        // Check video state
+                        console.log('[PoseSketch] Video element:', video.elt);
+                        console.log('[PoseSketch] Video readyState:', video.elt.readyState);
+                        console.log('[PoseSketch] Video dimensions:', video.elt.videoWidth, 'x', video.elt.videoHeight);
+
+                        // Start pose detection
+                        bodyPose.detectStart(video, gotPoses);
+                        modelLoaded = true;
+                        isRunning = true;
+                        poseSketchReady = true;
+
+                        console.log('[PoseSketch] Pose detection started');
+                    });
                 });
-            });
 
-            video.size(config.width, config.height);
-            video.hide();
+                video.size(config.width, config.height);
+                video.hide();
+            } catch (err) {
+                console.error('[PoseSketch] Failed to create video capture:', err);
+                if (fallbackTimeout) {
+                    clearTimeout(fallbackTimeout);
+                }
+                markReadyWithoutVideo('Camera creation failed: ' + err.message);
+            }
+
+            setupComplete = true;
         };
 
         // Pose detection callback
