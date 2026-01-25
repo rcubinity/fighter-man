@@ -38,6 +38,18 @@ source venv/bin/activate
 python tests/realistic_activity_client.py --activity Standing --duration 300
 ```
 
+## Quick Commands (Copy & Paste)
+
+**Start the server:**
+```bash
+cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bin/activate && python server.py
+```
+
+**Send test data:**
+```bash
+cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bin/activate && python tests/realistic_activity_client.py --activity Standing --duration 300
+```
+
 ## Quick Links
 
 - [sensor-hub docs](./sensor-hub/docs/important_documents.md)
