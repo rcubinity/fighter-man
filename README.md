@@ -15,15 +15,13 @@ Data collection system for training an AI model that recognizes firefighter acti
 ### Firefighter Server
 
 ```bash
-cd firefighter-server
-
-# 1. Starting docker
+# 1. Start Docker services (Qdrant + PostgreSQL)
+cd firefighter-server/docker
 docker-compose up -d
 
-# 2. Activate virtual environment
+# 2. Start the server (in a new terminal)
+cd firefighter-server
 source venv/bin/activate
-
-# 3. Start the server
 python server.py
 ```
 
@@ -41,7 +39,12 @@ python tests/realistic_activity_client.py --activity Standing --duration 300
 
 ## Quick Commands (Copy & Paste)
 
-**Start the server:**
+**Start Docker services (required first):**
+```bash
+cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server/docker' && docker-compose up -d
+```
+
+**Start the server (requires Docker services running):**
 ```bash
 cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bin/activate && python server.py
 ```
