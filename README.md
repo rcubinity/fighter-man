@@ -7,7 +7,8 @@ Data collection system for training an AI model that recognizes firefighter acti
 | Folder             | Description                                                             |
 | ------------------ | ----------------------------------------------------------------------- |
 | sensor-hub         | Raspberry Pi - collects BLE sensor data (foot pressure + accelerometer) |
-| firefighter-server | Server - stores data using Qdrant vector database                       |
+| firefighter-server | Flask server - stores data in Qdrant (vectors) + PostgreSQL (metadata)  |
+| frontend           | Browser UI - recording, replay, live visualization, pose detection      |
 
 ## Quick Start
 
@@ -52,5 +53,7 @@ cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bi
 
 ## Quick Links
 
+- **[System Overview](./docs/SYSTEM_OVERVIEW.md)** - Start here! Architecture, components, and how they work together
 - [sensor-hub docs](./sensor-hub/docs/important_documents.md)
 - [firefighter-server docs](./firefighter-server/docs/important_documents.md)
+- [frontend docs](./frontend/docs/README.md)
