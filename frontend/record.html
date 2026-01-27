@@ -436,10 +436,57 @@
     </div>
 
     <script>
+        // =================================================================
         // Configuration
-        const SERVER_URL = 'http://localhost:4100';
+        // =================================================================
+        const CONFIG = {
+            // Server
+            SERVER_URL: 'http://localhost:4100',
 
+            // Camera & ML5
+            CAMERA_TIMEOUT_MS: 5000,
+            ML5_MODEL_TIMEOUT_MS: 10000,
+
+            // Video Recording
+            VIDEO_MAX_SIZE_MB: 500,
+
+            // Replay
+            REPLAY_BATCH_SIZE: 20,
+            REPLAY_PRELOAD_OFFSET: 10,
+            REPLAY_BASE_INTERVAL_MS: 100,
+
+            // Recording
+            RECORDING_TIMER_INTERVAL_MS: 1000,
+
+            // Socket.IO
+            SOCKET_RECONNECTION_ATTEMPTS: 5,
+            SOCKET_RECONNECTION_DELAY_MS: 1000,
+        };
+
+        // Backward compatibility - keep SERVER_URL working
+        const SERVER_URL = CONFIG.SERVER_URL;
+
+        // =================================================================
+        // DOM Cache Helper
+        // =================================================================
+        // Caches DOM elements on first access to avoid repeated getElementById calls
+        const DOM = {
+            _cache: {},
+            get(id) {
+                if (!this._cache[id]) {
+                    this._cache[id] = document.getElementById(id);
+                }
+                return this._cache[id];
+            },
+            // Clear cache (useful if DOM changes dynamically)
+            clear() {
+                this._cache = {};
+            }
+        };
+
+        // =================================================================
         // State
+        // =================================================================
         let isRecording = false;
         let currentSessionId = null;
         let recordingStartTime = null;
@@ -453,8 +500,8 @@
         let replayCurrentWindowIndex = 0; // Current window index
         let replayReadingIndex = 0;       // Current reading within window
         let replaySpeed = 1.0;            // Playback speed multiplier (1x default)
-        let replayPreloadOffset = 10;     // Preload when within 10 windows of end
-        let replayBatchSize = 20;         // Windows per batch
+        let replayPreloadOffset = CONFIG.REPLAY_PRELOAD_OFFSET;  // Preload when within N windows of end
+        let replayBatchSize = CONFIG.REPLAY_BATCH_SIZE;         // Windows per batch
         let isReplaying = false;          // Playback active flag
         let replayTimer = null;           // Interval timer for playback
         let replaySessionId = null;       // Current replay session ID
@@ -596,8 +643,8 @@
             const iotSocket = io(`${SERVER_URL}/iot`, {
                 transports: ['websocket', 'polling'],
                 reconnection: true,
-                reconnectionAttempts: 5,
-                reconnectionDelay: 1000
+                reconnectionAttempts: CONFIG.SOCKET_RECONNECTION_ATTEMPTS,
+                reconnectionDelay: CONFIG.SOCKET_RECONNECTION_DELAY_MS
             });
 
             iotSocket.on('connect', () => {
@@ -1023,7 +1070,7 @@
                 const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
                 const seconds = (elapsed % 60).toString().padStart(2, '0');
                 document.getElementById('recordingDuration').textContent = `${minutes}:${seconds}`;
-            }, 1000);
+            }, CONFIG.RECORDING_TIMER_INTERVAL_MS);
         }
 
         function stopRecordingTimer() {
@@ -1680,7 +1727,7 @@
 
             // Start playback loop
             // Calculate interval based on replay speed (default 100ms for 10Hz playback)
-            const baseInterval = 100; // ms
+            const baseInterval = CONFIG.REPLAY_BASE_INTERVAL_MS;
             const interval = baseInterval / replaySpeed;
 
             replayTimer = setInterval(() => {

@@ -5,12 +5,24 @@ import json
 from datetime import datetime
 from bleak import BleakClient, BleakScanner
 from .parsers import parse_foot_data
+from .constants import (
+    BLE_SCAN_TIMEOUT,
+    BLE_CONNECT_TIMEOUT,
+    BLE_RETRY_DELAY,
+    BLE_STABILIZATION_DELAY,
+    BLE_NOTIFICATION_SETUP_DELAY,
+    BLE_CONNECTION_CHECK_DELAY,
+    BLE_MONITOR_LOOP_INTERVAL,
+    FOOT_SERVICE_UUID,
+    FOOT_NOTIFY_UUID,
+    FOOT_WRITE_UUID,
+)
 
 
-# BLE UUIDs for foot pressure sensors
-SERVICE_UUID = "0000FFF0-0000-1000-8000-00805F9B34FB"
-NOTIFY_UUID = "0000FFF1-0000-1000-8000-00805F9B34FB"
-WRITE_UUID = "0000FFF2-0000-1000-8000-00805F9B34FB"
+# Use constants for BLE UUIDs
+SERVICE_UUID = FOOT_SERVICE_UUID
+NOTIFY_UUID = FOOT_NOTIFY_UUID
+WRITE_UUID = FOOT_WRITE_UUID
 
 
 class FootSensor:
@@ -85,14 +97,14 @@ class FootSensor:
                 # Scan for device with timeout
                 device = await BleakScanner.find_device_by_address(
                     self.mac,
-                    timeout=10.0
+                    timeout=BLE_SCAN_TIMEOUT
                 )
 
                 if not device:
                     print(f"[{self.name}] Device not found during scan")
                     if attempt < self.max_retries:
-                        print(f"[{self.name}] Retrying in 3 seconds...")
-                        await asyncio.sleep(3)
+                        print(f"[{self.name}] Retrying in {BLE_RETRY_DELAY} seconds...")
+                        await asyncio.sleep(BLE_RETRY_DELAY)
                         continue
                     else:
                         print(f"[{self.name}] Failed after {self.max_retries} attempts")
@@ -101,11 +113,11 @@ class FootSensor:
                 print(f"[{self.name}] Device found, connecting...")
 
                 # Connect to device
-                self.client = BleakClient(device, timeout=15.0)
+                self.client = BleakClient(device, timeout=BLE_CONNECT_TIMEOUT)
                 await self.client.connect()
 
                 # Wait briefly for connection to stabilize
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(BLE_STABILIZATION_DELAY)
 
                 # Verify still connected
                 if not self.client.is_connected:
@@ -141,7 +153,7 @@ class FootSensor:
             if self.client.is_connected:
                 break
             print(f"[{self.name}] Waiting for connection (check {check+1}/{max_checks})...")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(BLE_CONNECTION_CHECK_DELAY)
 
         if not self.client.is_connected:
             print(f"[{self.name}] Not connected after {max_checks} checks")
@@ -152,7 +164,7 @@ class FootSensor:
             await self.client.start_notify(NOTIFY_UUID, self._notification_handler)
 
             # Wait for notification setup to complete
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(BLE_NOTIFICATION_SETUP_DELAY)
 
             # Now send begin command to start data collection
             await self.client.write_gatt_char(WRITE_UUID, b'begin', response=True)
@@ -214,7 +226,7 @@ class FootSensor:
             while self.running and self.client.is_connected:
                 if duration and (asyncio.get_event_loop().time() - start_time) >= duration:
                     break
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(BLE_MONITOR_LOOP_INTERVAL)
 
         except asyncio.CancelledError:
             pass

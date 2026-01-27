@@ -7,9 +7,18 @@ Provides REST API for session management and data export.
 
 import os
 import uuid
+import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Get the directory where this script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +31,7 @@ from werkzeug.utils import secure_filename
 from lib.config import Config
 from lib.vector_store import VectorStore
 from lib.database import Database, SessionRepository
+from lib.constants import ACTIVITY_TYPES
 
 # Load environment variables
 load_dotenv()
@@ -58,19 +68,7 @@ current_session_id: str = None
 # Track currently detected activity per session (from frontend detector)
 detected_activities: Dict[str, Dict[str, Any]] = {}
 
-# Valid activity types for Stage 1
-ACTIVITY_TYPES = [
-    "Walking",
-    "Running",
-    "Crawling",
-    "Climbing",
-    "Standing",
-    "Kneeling",
-    "Sitting",
-    "Carrying",
-    "Hose_Operation",
-    "Idle",
-]
+# ACTIVITY_TYPES imported from lib/constants.py
 
 
 def get_vector_store() -> VectorStore:
@@ -97,6 +95,26 @@ def get_session_repo() -> SessionRepository:
     return session_repo
 
 
+def get_current_activity_label(session_id: str) -> Optional[str]:
+    """
+    Get activity label for a session.
+
+    Prioritizes frontend-detected activity over session default.
+
+    Args:
+        session_id: Session ID to get activity for
+
+    Returns:
+        Activity label string or None
+    """
+    if session_id in detected_activities:
+        return detected_activities[session_id]["activity"]
+
+    repo = get_session_repo()
+    session = repo.get(session_id)
+    return session.activity_type if session else None
+
+
 # ============================================================
 # Socket.IO Event Handlers
 # ============================================================
@@ -104,13 +122,13 @@ def get_session_repo() -> SessionRepository:
 @socketio.on("connect", namespace="/iot")
 def handle_connect():
     """Handle client connection."""
-    print(f"[Socket.IO] Client connected: {request.sid}")
+    logger.info(f"[Socket.IO] Client connected: {request.sid}")
 
 
 @socketio.on("disconnect", namespace="/iot")
 def handle_disconnect():
     """Handle client disconnection."""
-    print(f"[Socket.IO] Client disconnected: {request.sid}")
+    logger.info(f"[Socket.IO] Client disconnected: {request.sid}")
 
 
 @socketio.on("authenticate", namespace="/iot")
@@ -123,10 +141,10 @@ def handle_authenticate(data):
     device_key = data.get("device_key", "")
 
     if config.auth.is_valid_device(device_key):
-        print(f"[Socket.IO] Device authenticated: {device_key}")
+        logger.info(f"[Socket.IO] Device authenticated: {device_key}")
         emit("auth_success", {"device_key": device_key, "session_id": current_session_id})
     else:
-        print(f"[Socket.IO] Authentication failed: {device_key}")
+        logger.info(f"[Socket.IO] Authentication failed: {device_key}")
         emit("auth_error", {"message": "Invalid device key"})
         disconnect()
 
@@ -149,27 +167,19 @@ def handle_foot_data(data):
     }
     """
     # Broadcast to UI clients for live display
-    print(f"[Broadcast] foot_data to /iot")
+    logger.debug(f"[Broadcast] foot_data to /iot")
     socketio.emit("foot_data", data, namespace="/iot")
 
     if not current_session_id:
         return  # No active session
 
-    # Get current detected activity from frontend (if available)
-    if current_session_id in detected_activities:
-        detected = detected_activities[current_session_id]
-        activity_label = detected["activity"]
-    else:
-        # Fallback to session activity_type if no detection available
-        repo = get_session_repo()
-        session = repo.get(current_session_id)
-        activity_label = session.activity_type if session else None
+    activity_label = get_current_activity_label(current_session_id)
 
     store = get_vector_store()
     point_id = store.add_reading(current_session_id, "foot", data, label=activity_label)
 
     if point_id:
-        print(f"[Qdrant] Stored foot window: {point_id} (label: {activity_label})")
+        logger.info(f"[Qdrant] Stored foot window: {point_id} (label: {activity_label})")
 
 
 @socketio.on("accelerometer_data", namespace="/iot")
@@ -188,27 +198,19 @@ def handle_accel_data(data):
     }
     """
     # Broadcast to UI clients for live display
-    print(f"[Broadcast] accel_data to /iot")
+    logger.debug(f"[Broadcast] accel_data to /iot")
     socketio.emit("accel_data", data, namespace="/iot")
 
     if not current_session_id:
         return  # No active session
 
-    # Get current detected activity from frontend (if available)
-    if current_session_id in detected_activities:
-        detected = detected_activities[current_session_id]
-        activity_label = detected["activity"]
-    else:
-        # Fallback to session activity_type if no detection available
-        repo = get_session_repo()
-        session = repo.get(current_session_id)
-        activity_label = session.activity_type if session else None
+    activity_label = get_current_activity_label(current_session_id)
 
     store = get_vector_store()
     point_id = store.add_reading(current_session_id, "accel", data, label=activity_label)
 
     if point_id:
-        print(f"[Qdrant] Stored accel window: {point_id} (label: {activity_label})")
+        logger.info(f"[Qdrant] Stored accel window: {point_id} (label: {activity_label})")
 
 
 @socketio.on("activity_detected", namespace="/iot")
@@ -239,7 +241,7 @@ def handle_activity_detected(data):
         "timestamp": datetime.utcnow()
     }
 
-    print(f"[Activity] Detected: {activity} ({confidence}%) for session {session_id}")
+    logger.info(f"[Activity] Detected: {activity} ({confidence}%) for session {session_id}")
 
 
 # ============================================================
@@ -298,10 +300,10 @@ def create_session():
     activity_type = data.get("activity_type")
 
     # DEBUG: Log received data
-    print(f"[DEBUG] Received session creation request:")
-    print(f"[DEBUG]   Raw data: {data}")
-    print(f"[DEBUG]   session_name: {session_name}")
-    print(f"[DEBUG]   activity_type: {activity_type}")
+    logger.debug(f"[DEBUG] Received session creation request:")
+    logger.debug(f"[DEBUG]   Raw data: {data}")
+    logger.debug(f"[DEBUG]   session_name: {session_name}")
+    logger.debug(f"[DEBUG]   activity_type: {activity_type}")
 
     # Validate activity_type
     if activity_type and activity_type not in ACTIVITY_TYPES:
@@ -317,18 +319,18 @@ def create_session():
         store = get_vector_store()
         store.flush_session(active_session.id)
         repo.update(active_session.id, status="stopped", stopped_at=datetime.utcnow())
-        print(f"[Session] Auto-stopped: {active_session.id}")
+        logger.info(f"[Session] Auto-stopped: {active_session.id}")
 
     # Create new session
     session = repo.create(name=session_name, activity_type=activity_type)
     current_session_id = session.id
 
     # DEBUG: Log created session
-    print(f"[DEBUG] Created session object:")
-    print(f"[DEBUG]   session.id: {session.id}")
-    print(f"[DEBUG]   session.activity_type: {session.activity_type}")
+    logger.debug(f"[DEBUG] Created session object:")
+    logger.debug(f"[DEBUG]   session.id: {session.id}")
+    logger.debug(f"[DEBUG]   session.activity_type: {session.activity_type}")
 
-    print(f"[Session] Created: {session.id} ({session.name}) - Activity: {activity_type}")
+    logger.info(f"[Session] Created: {session.id} ({session.name}) - Activity: {activity_type}")
 
     # Notify connected clients
     socketio.emit(
@@ -715,7 +717,7 @@ def upload_session_video(session_id):
             video_size_bytes=file_size
         )
 
-        print(f"[Video] Uploaded for session {session_id}: {filename} ({file_size} bytes)")
+        logger.info(f"[Video] Uploaded for session {session_id}: {filename} ({file_size} bytes)")
 
         return jsonify({
             'success': True,
@@ -724,7 +726,7 @@ def upload_session_video(session_id):
         }), 200
 
     except Exception as e:
-        print(f"[Video] Upload failed for session {session_id}: {str(e)}")
+        logger.info(f"[Video] Upload failed for session {session_id}: {str(e)}")
         return jsonify({'error': f'Failed to save video: {str(e)}'}), 500
 
 
@@ -753,7 +755,7 @@ def get_session_video(session_id):
 
     # Check if file exists on disk
     if not os.path.exists(file_path):
-        print(f"[Video] File not found on disk: {file_path}")
+        logger.info(f"[Video] File not found on disk: {file_path}")
         return jsonify({'error': 'Video file not found on disk'}), 404
 
     # Get file size
@@ -786,7 +788,7 @@ def get_session_video(session_id):
             return response
 
         except Exception as e:
-            print(f"[Video] Range request failed: {str(e)}")
+            logger.info(f"[Video] Range request failed: {str(e)}")
             # Fall through to full file response on error
 
     # Return full file (no range request or range parsing failed)
@@ -803,31 +805,31 @@ def get_session_video(session_id):
 # ============================================================
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Firefighter Server")
-    print("=" * 60)
-    print(f"Host: {config.server.host}")
-    print(f"Port: {config.server.port}")
-    print(f"Debug: {config.server.debug}")
-    print(f"Qdrant: {config.qdrant.host}:{config.qdrant.port}")
-    print(f"PostgreSQL: {config.postgres.host}:{config.postgres.port}/{config.postgres.database}")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Firefighter Server")
+    logger.info("=" * 60)
+    logger.info(f"Host: {config.server.host}")
+    logger.info(f"Port: {config.server.port}")
+    logger.info(f"Debug: {config.server.debug}")
+    logger.info(f"Qdrant: {config.qdrant.host}:{config.qdrant.port}")
+    logger.info(f"PostgreSQL: {config.postgres.host}:{config.postgres.port}/{config.postgres.database}")
+    logger.info("=" * 60)
 
     # Initialize vector store on startup
     get_vector_store()
-    print("[Qdrant] Vector store initialized")
+    logger.info("[Qdrant] Vector store initialized")
 
     # Initialize database
     get_database()
     get_session_repo()
-    print("[Database] PostgreSQL initialized")
+    logger.info("[Database] PostgreSQL initialized")
 
     # Restore active session if server restarted
     repo = get_session_repo()
     active_session = repo.get_active()
     if active_session:
         current_session_id = active_session.id
-        print(f"[Session] Restored active session: {current_session_id}")
+        logger.info(f"[Session] Restored active session: {current_session_id}")
 
     socketio.run(
         app,

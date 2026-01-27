@@ -22,6 +22,15 @@ from qdrant_client.models import (
 )
 
 from .config import QdrantConfig
+from .constants import (
+    FOOT_SENSOR_VALUES,
+    ACCEL_SENSOR_VALUES,
+    MAX_READINGS_PER_WINDOW,
+    FOOT_VECTOR_DIM,
+    ACCEL_VECTOR_DIM,
+    QDRANT_SCROLL_LIMIT,
+    QDRANT_TIMEOUT_SECONDS,
+)
 
 
 @dataclass
@@ -50,7 +59,7 @@ class VectorStore:
         self.client = QdrantClient(
             host=config.host,
             port=config.port,
-            timeout=10  # 10 second timeout to prevent hanging
+            timeout=QDRANT_TIMEOUT_SECONDS
         )
 
         # Active windows being accumulated (keyed by session_id)
@@ -95,21 +104,21 @@ class VectorStore:
 
     def _foot_reading_to_vector(self, reading: Dict) -> List[float]:
         """
-        Convert foot reading to vector segment (18 values).
+        Convert foot reading to vector segment.
 
         Args:
             reading: Foot sensor reading
 
         Returns:
-            List of 18 floats
+            List of FOOT_SENSOR_VALUES floats
         """
         data = reading.get("data", {})
         values = data.get("values", [])
 
-        # Pad or truncate to 18 values
-        if len(values) < 18:
-            values = values + [0.0] * (18 - len(values))
-        return values[:18]
+        # Pad or truncate to FOOT_SENSOR_VALUES values
+        if len(values) < FOOT_SENSOR_VALUES:
+            values = values + [0.0] * (FOOT_SENSOR_VALUES - len(values))
+        return values[:FOOT_SENSOR_VALUES]
 
     def _accel_reading_to_vector(self, reading: Dict) -> List[float]:
         """
@@ -152,28 +161,28 @@ class VectorStore:
         Returns:
             Normalized vector of 270 floats
         """
-        # Get up to 10 most recent readings of each type
-        foot_readings = window.foot_readings[-10:]
-        accel_readings = window.accel_readings[-10:]
+        # Get up to MAX_READINGS_PER_WINDOW most recent readings of each type
+        foot_readings = window.foot_readings[-MAX_READINGS_PER_WINDOW:]
+        accel_readings = window.accel_readings[-MAX_READINGS_PER_WINDOW:]
 
-        # Build foot segment (180 values)
+        # Build foot segment (FOOT_VECTOR_DIM values)
         foot_vector = []
         for reading in foot_readings:
             foot_vector.extend(self._foot_reading_to_vector(reading))
-        # Pad if less than 10 readings
-        while len(foot_vector) < 180:
-            foot_vector.extend([0.0] * 18)
+        # Pad if less than MAX_READINGS_PER_WINDOW readings
+        while len(foot_vector) < FOOT_VECTOR_DIM:
+            foot_vector.extend([0.0] * FOOT_SENSOR_VALUES)
 
-        # Build accel segment (90 values)
+        # Build accel segment (ACCEL_VECTOR_DIM values)
         accel_vector = []
         for reading in accel_readings:
             accel_vector.extend(self._accel_reading_to_vector(reading))
-        # Pad if less than 10 readings
-        while len(accel_vector) < 90:
-            accel_vector.extend([0.0] * 9)
+        # Pad if less than MAX_READINGS_PER_WINDOW readings
+        while len(accel_vector) < ACCEL_VECTOR_DIM:
+            accel_vector.extend([0.0] * ACCEL_SENSOR_VALUES)
 
         # Combine and normalize
-        full_vector = foot_vector[:180] + accel_vector[:90]
+        full_vector = foot_vector[:FOOT_VECTOR_DIM] + accel_vector[:ACCEL_VECTOR_DIM]
         return self._normalize_vector(full_vector)
 
     def add_reading(
@@ -390,7 +399,7 @@ class VectorStore:
                         )
                     ]
                 ),
-                limit=100,
+                limit=QDRANT_SCROLL_LIMIT,
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
@@ -474,7 +483,7 @@ class VectorStore:
                         )
                     ]
                 ),
-                limit=100,
+                limit=QDRANT_SCROLL_LIMIT,
                 offset=offset,
                 with_payload=False,
                 with_vectors=False,

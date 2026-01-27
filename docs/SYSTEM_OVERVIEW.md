@@ -247,8 +247,8 @@ cd frontend && python -m http.server 8080
 
 ## Further Reading
 
-- [sensor-hub docs](../sensor-hub/docs/important_documents.md)
-- [firefighter-server docs](../firefighter-server/docs/important_documents.md)
-- [frontend docs](../frontend/docs/README.md)
-- [API endpoints](../firefighter-server/docs/api_endpoints.md)
-- [Project goals](../firefighter-server/docs/project_goals.md)
+- [sensor-hub docs](./sensor-hub/important_documents.md)
+- [firefighter-server docs](./firefighter-server/important_documents.md)
+- [frontend docs](./frontend/README.md)
+- [API endpoints](./firefighter-server/api_endpoints.md)
+- [Project goals](./firefighter-server/project_goals.md)

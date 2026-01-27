@@ -5,13 +5,26 @@ import json
 from datetime import datetime
 from bleak import BleakClient, BleakScanner
 from .parsers import parse_accel_data
+from .constants import (
+    BLE_SCAN_TIMEOUT,
+    BLE_CONNECT_TIMEOUT,
+    BLE_RETRY_DELAY,
+    BLE_MONITOR_LOOP_INTERVAL,
+    ACCEL_PACKET_SIZE,
+    ACCEL_KEEPALIVE_INTERVAL,
+    ACCEL_KEEPALIVE_COMMAND,
+    ACCEL_NOTIFY_UUID_VARIANT1,
+    ACCEL_NOTIFY_UUID_VARIANT2,
+    ACCEL_WRITE_UUID_VARIANT1,
+    ACCEL_WRITE_UUID_VARIANT2,
+)
 
 
-# BLE UUIDs for WT901BLE67 accelerometer (two possible UUID patterns)
-NOTIFY_UUID_1 = "0000ffe4-0000-1000-8000-00805f9b34fb"
-NOTIFY_UUID_2 = "0000fff1-0000-1000-8000-00805f9b34fb"
-WRITE_UUID_1 = "0000ffe9-0000-1000-8000-00805f9b34fb"
-WRITE_UUID_2 = "0000fff2-0000-1000-8000-00805f9b34fb"
+# Use constants for BLE UUIDs
+NOTIFY_UUID_1 = ACCEL_NOTIFY_UUID_VARIANT1
+NOTIFY_UUID_2 = ACCEL_NOTIFY_UUID_VARIANT2
+WRITE_UUID_1 = ACCEL_WRITE_UUID_VARIANT1
+WRITE_UUID_2 = ACCEL_WRITE_UUID_VARIANT2
 
 
 class AccelSensor:
@@ -46,10 +59,10 @@ class AccelSensor:
             # Accumulate data
             self.packet_buffer.extend(raw_data)
 
-            # Process all complete 20-byte packets
-            while len(self.packet_buffer) >= 20:
-                packet = bytes(self.packet_buffer[:20])
-                self.packet_buffer = self.packet_buffer[20:]
+            # Process all complete packets
+            while len(self.packet_buffer) >= ACCEL_PACKET_SIZE:
+                packet = bytes(self.packet_buffer[:ACCEL_PACKET_SIZE])
+                self.packet_buffer = self.packet_buffer[ACCEL_PACKET_SIZE:]
 
                 # Throttle: only process every Nth packet
                 self.packet_count += 1
@@ -122,14 +135,14 @@ class AccelSensor:
                 # Scan for device with timeout
                 device = await BleakScanner.find_device_by_address(
                     self.mac,
-                    timeout=10.0
+                    timeout=BLE_SCAN_TIMEOUT
                 )
 
                 if not device:
                     print(f"[{self.name}] Device not found during scan")
                     if attempt < self.max_retries:
-                        print(f"[{self.name}] Retrying in 3 seconds...")
-                        await asyncio.sleep(3)
+                        print(f"[{self.name}] Retrying in {BLE_RETRY_DELAY} seconds...")
+                        await asyncio.sleep(BLE_RETRY_DELAY)
                         continue
                     else:
                         print(f"[{self.name}] Failed after {self.max_retries} attempts")
@@ -138,7 +151,7 @@ class AccelSensor:
                 print(f"[{self.name}] Device found, connecting...")
 
                 # Connect to device
-                self.client = BleakClient(device, timeout=15.0)
+                self.client = BleakClient(device, timeout=BLE_CONNECT_TIMEOUT)
                 await self.client.connect()
                 print(f"[{self.name}] Connected to {self.mac}")
 
@@ -179,13 +192,11 @@ class AccelSensor:
 
     async def _keep_alive(self):
         """Send periodic keep-alive commands (device-specific protocol)."""
-        keep_alive_cmd = bytes([0xff, 0xaa, 0x27, 0x3A, 0x00])
-
         while self.running and self.client and self.client.is_connected:
             try:
                 if self.write_uuid:
-                    await self.client.write_gatt_char(self.write_uuid, keep_alive_cmd, response=False)
-                await asyncio.sleep(1.0)
+                    await self.client.write_gatt_char(self.write_uuid, ACCEL_KEEPALIVE_COMMAND, response=False)
+                await asyncio.sleep(ACCEL_KEEPALIVE_INTERVAL)
             except Exception:
                 break
 
@@ -227,7 +238,7 @@ class AccelSensor:
             while self.running and self.client.is_connected:
                 if duration and (asyncio.get_event_loop().time() - start_time) >= duration:
                     break
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(BLE_MONITOR_LOOP_INTERVAL)
 
         except asyncio.CancelledError:
             pass

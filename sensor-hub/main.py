@@ -25,46 +25,41 @@ accel_db: AccelDatabase = None
 socket_client: SocketIOClient = None
 
 
-async def handle_foot_data(data: dict):
+def create_data_handler(database_getter, socket_event_name: str):
     """
-    Handle foot sensor data - store in SQLite and broadcast via Socket.IO.
+    Factory function to create sensor data handlers.
+
+    This eliminates duplicate handler code by parameterizing the database
+    and Socket.IO event name.
 
     Args:
-        data: Foot sensor reading
+        database_getter: Function that returns the database instance
+        socket_event_name: Socket.IO event name to emit
+
+    Returns:
+        Async handler function
     """
-    global foot_db, socket_client
+    async def handler(data: dict):
+        global socket_client
 
-    # Always store in SQLite (backup)
-    if foot_db:
-        foot_db.save_record(data)
+        # Always store in SQLite (backup)
+        database = database_getter()
+        if database:
+            database.save_record(data)
 
-    # Broadcast via Socket.IO if connected
-    if socket_client and socket_client.connected:
-        socket_client.emit("foot_pressure_data", data)
+        # Broadcast via Socket.IO if connected
+        if socket_client and socket_client.connected:
+            socket_client.emit(socket_event_name, data)
 
-    # Print to stdout (for debugging/logging)
-    print(json.dumps(data))
+        # Print to stdout (for debugging/logging)
+        print(json.dumps(data))
+
+    return handler
 
 
-async def handle_accel_data(data: dict):
-    """
-    Handle accelerometer data - store in SQLite and broadcast via Socket.IO.
-
-    Args:
-        data: Accelerometer sensor reading
-    """
-    global accel_db, socket_client
-
-    # Always store in SQLite (backup)
-    if accel_db:
-        accel_db.save_record(data)
-
-    # Broadcast via Socket.IO if connected
-    if socket_client and socket_client.connected:
-        socket_client.emit("accelerometer_data", data)
-
-    # Print to stdout (for debugging/logging)
-    print(json.dumps(data))
+# Create handlers using factory (eliminates duplicate code)
+handle_foot_data = create_data_handler(lambda: foot_db, "foot_pressure_data")
+handle_accel_data = create_data_handler(lambda: accel_db, "accelerometer_data")
 
 
 def init_databases(config: DatabaseConfig):
@@ -99,6 +94,33 @@ def init_socket(config: SocketConfig) -> bool:
     else:
         print("[Socket.IO] Connection failed - data will be buffered in SQLite")
         return False
+
+
+async def cleanup_tasks(tasks: list, socket_client):
+    """
+    Cancel all running tasks and disconnect socket client.
+
+    This function handles graceful shutdown by:
+    1. Cancelling all async tasks
+    2. Waiting for them to complete cleanup
+    3. Disconnecting the Socket.IO client
+
+    Args:
+        tasks: List of asyncio tasks to cancel
+        socket_client: Socket.IO client instance (or None)
+    """
+    # Cancel all tasks
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+
+    # Wait for all tasks to finish cleanup
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Disconnect Socket.IO
+    if socket_client:
+        socket_client.disconnect()
 
 
 async def main():
@@ -184,30 +206,12 @@ async def main():
     # Monitor all sensors concurrently
     try:
         await asyncio.gather(*tasks)
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, KeyboardInterrupt):
         print("\n\nShutting down... Cleaning up connections.")
-        # Cancel all tasks
-        for task in tasks:
-            task.cancel()
-        # Wait for all tasks to finish cleanup
-        await asyncio.gather(*tasks, return_exceptions=True)
-    except KeyboardInterrupt:
-        print("\n\nShutting down... Cleaning up connections.")
-        # Cancel all tasks
-        for task in tasks:
-            task.cancel()
-        # Wait for all tasks to finish cleanup
-        await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         print(f"\nError: {e}")
-        # Cancel all tasks on error
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
     finally:
-        # Disconnect Socket.IO
-        if socket_client:
-            socket_client.disconnect()
+        await cleanup_tasks(tasks, socket_client)
 
     print("\n" + "=" * 60)
     print("All sensors disconnected. Goodbye!")

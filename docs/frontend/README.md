@@ -76,22 +76,20 @@ The frontend requires a modern web browser with support for:
 ```
 frontend/
 ├── record.html                    # Main recording/replay application
-├── index.html                     # Demo visualization page
-├── js/
-│   ├── activityDetector.js       # Real-time activity recognition
-│   └── videoRecorder.js          # Camera access & video upload
-├── svg/
-│   ├── standing.xml              # Standing activity icon
-│   └── sitting.xml               # Sitting activity icon
-└── docs/                          # This documentation
-    ├── README.md                  # This file (getting started)
-    ├── ARCHITECTURE.md            # System architecture
-    ├── RECORDING_GUIDE.md         # How to record sessions
-    ├── REPLAY_GUIDE.md            # How to replay sessions
-    ├── ACTIVITY_DETECTION.md      # Activity recognition details
-    ├── VIDEO_RECORDING.md         # Video capture technical details
-    ├── API_INTEGRATION.md         # Server communication
-    └── TROUBLESHOOTING.md         # Common issues and solutions
+└── js/
+    ├── activityDetector.js       # Real-time activity recognition
+    ├── videoRecorder.js          # Camera access & video upload
+    └── poseSketch.js             # p5.js camera + skeleton visualization
+
+docs/frontend/                     # Documentation (centralized)
+├── README.md                      # This file (getting started)
+├── ARCHITECTURE.md                # System architecture
+├── RECORDING_GUIDE.md             # How to record sessions
+├── REPLAY_GUIDE.md                # How to replay sessions
+├── ACTIVITY_DETECTION.md          # Activity recognition details
+├── VIDEO_RECORDING.md             # Video capture technical details
+├── API_INTEGRATION.md             # Server communication
+└── TROUBLESHOOTING.md             # Common issues and solutions
 ```
 
 ---
