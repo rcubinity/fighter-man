@@ -256,7 +256,7 @@ class VideoRecorder {
             formData.append('video', blob, `${sessionId}.webm`);
 
             // Upload to server
-            const response = await fetch(`http://localhost:4100/api/sessions/${sessionId}/upload-video`, {
+            const response = await fetch(`${SERVER_URL}/api/sessions/${sessionId}/upload-video`, {
                 method: 'POST',
                 body: formData
             });
@@ -338,7 +338,7 @@ class VideoRecorder {
             formData.append('video', blob, `${sessionId}.webm`);
 
             // Send request
-            xhr.open('POST', `http://localhost:4100/api/sessions/${sessionId}/upload-video`);
+            xhr.open('POST', `${SERVER_URL}/api/sessions/${sessionId}/upload-video`);
             xhr.send(formData);
         });
     }
