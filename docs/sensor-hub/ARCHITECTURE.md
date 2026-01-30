@@ -1,503 +1,403 @@
-# Sensor-Hub System Architecture
+# Sensor Hub Architecture
 
-## Overview
+This document describes the internal architecture of the sensor-hub component, including the BLE communication model, data pipeline, and key design patterns.
 
-The sensor-hub is a production-ready IoT data collection pipeline designed for supervised machine learning. It collects real-time sensor data from BLE (Bluetooth Low Energy) devices and transmits it to a centralized server for storage and future ML model training.
+## Code Organization
 
-**Key Design Principle:** This system is **pure data collection** with no onboard intelligence. Activity detection and classification are deferred to future ML development after sufficient training data has been collected.
+The sensor hub was recently refactored to extract common BLE logic into a base class, reducing code duplication between foot and accelerometer sensors.
 
----
+### Entry Point: `main.py`
 
-## High-Level Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      BLE SENSORS (Wearables)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐   │
-│  │ Left Foot    │  │ Right Foot   │  │ Accelerometer (IMU)    │   │
-│  │ Pressure     │  │ Pressure     │  │ WT901BLE67             │   │
-│  └──────┬───────┘  └──────┬───────┘  └───────────┬────────────┘   │
-│         │                  │                       │                 │
-│         └──────────────────┼───────────────────────┘                 │
-│                            │ BLE Protocol                            │
-└────────────────────────────┼─────────────────────────────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│              RASPBERRY PI (sensor-hub)                              │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │  main.py (Entry Point)                                       │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │  │
-│  │  │ FootSensor  │  │ FootSensor  │  │  AccelSensor      │   │  │
-│  │  │ (Left)      │  │ (Right)     │  │  (WT901BLE67)     │   │  │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────────┬────────┘   │  │
-│  │         │                 │                     │            │  │
-│  │         └─────────────────┼─────────────────────┘            │  │
-│  │                           ▼                                  │  │
-│  │              ┌────────────────────────┐                      │  │
-│  │              │  Data Parsers          │                      │  │
-│  │              │  - parse_foot_data()   │                      │  │
-│  │              │  - parse_accel_data()  │                      │  │
-│  │              └────────────┬───────────┘                      │  │
-│  │                           │                                  │  │
-│  │              ┌────────────▼───────────┐                      │  │
-│  │              │  Throttle & Format     │                      │  │
-│  │              │  (Reduce data rate)    │                      │  │
-│  │              └────────────┬───────────┘                      │  │
-│  └────────────────────────────┼──────────────────────────────────┘  │
-│                               │                                     │
-│            ┌──────────────────┼──────────────────┐                  │
-│            │                  │                  │                  │
-│            ▼                  ▼                  ▼                  │
-│  ┌─────────────────┐  ┌─────────────┐  ┌─────────────────┐        │
-│  │ SQLite Database │  │ Socket.IO   │  │ stdout (JSON)   │        │
-│  │ (Backup Buffer) │  │ Client      │  │ (Logging)       │        │
-│  │                 │  │ Real-time   │  │                 │        │
-│  │ foot.db         │  │ Broadcast   │  │                 │        │
-│  │ accel.db        │  │ to Server   │  │                 │        │
-│  └─────────┬───────┘  └──────┬──────┘  └─────────────────┘        │
-│            │                  │                                     │
-│            │                  │                                     │
-│  ┌─────────▼──────────────────┼─────────────────────────┐          │
-│  │  Background Batch Senders  │                         │          │
-│  │  - send_foot_data.py       │                         │          │
-│  │  - send_accel_data.py      │                         │          │
-│  │  (Retry failed transmissions)                        │          │
-│  └────────────────────────────┼─────────────────────────┘          │
-└─────────────────────────────────────────────────────────────────────┘
-                                │ Socket.IO + HTTP Fallback
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                   FIREFIGHTER-SERVER                                │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │  Flask + Socket.IO Server (Python)                            │ │
-│  │  - Receives real-time sensor streams                          │ │
-│  │  - Accumulates data into 500ms time windows                   │ │
-│  │  - Converts to 270-dimension vectors                          │ │
-│  └───────────────────────────┬───────────────────────────────────┘ │
-│                               │                                     │
-│            ┌──────────────────┼──────────────────┐                  │
-│            │                  │                  │                  │
-│            ▼                  ▼                  ▼                  │
-│  ┌─────────────────┐  ┌─────────────┐  ┌─────────────────┐        │
-│  │ PostgreSQL      │  │ Qdrant      │  │ REST API        │        │
-│  │ Session         │  │ Vector DB   │  │ /api/sessions   │        │
-│  │ Metadata        │  │             │  │ (Management)    │        │
-│  │                 │  │ Sensor      │  │                 │        │
-│  │ - id            │  │ Vectors     │  │                 │        │
-│  │ - name          │  │ 270-dim     │  │                 │        │
-│  │ - activity_type │  │             │  │                 │        │
-│  │ - timestamps    │  │             │  │                 │        │
-│  └─────────────────┘  └─────────────┘  └─────────────────┘        │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Component Responsibilities
-
-### 1. BLE Sensors (Hardware Layer)
-
-**Foot Pressure Sensors (Left & Right)**
-- Measure foot pressure distribution at 18 points per foot
-- Transmit text protocol data via BLE
-- Service UUID: `0000FFF0-...`
-
-**Accelerometer (WT901BLE67)**
-- 9-axis IMU (accelerometer + gyroscope + angles)
-- Transmit binary protocol data via BLE
-- Service UUID: Auto-detected (`ffe4` or `fff1` variant)
-- Requires 1Hz keep-alive commands
-
-### 2. Raspberry Pi (sensor-hub)
-
-**Main Process (main.py)**
-- Orchestrates concurrent sensor connections
-- Priority connection: Left foot → Right foot → Accelerometer
-- 3-second delays between connections to avoid BLE stack overload
-- Runs sensors concurrently using asyncio.gather()
-
-**Sensor Classes**
-- `FootSensor` (`sensors/foot_sensor.py`): Handles foot pressure BLE communication
-- `AccelSensor` (`sensors/accel_sensor.py`): Handles accelerometer BLE communication
-- Both follow same interface: `connect()` → `start_monitoring()` → `monitor_loop()`
-
-**Data Parsers** (`sensors/parsers.py`)
-- `parse_foot_data()`: Text protocol → JSON (18 active sensors, max, avg, count)
-- `parse_accel_data()`: Binary 20-byte packets → JSON (acc, gyro, angles)
-
-**Storage Layer**
-- `lib/database/foot_db.py`: SQLite backup for foot data
-- `lib/database/accel_db.py`: SQLite backup for accelerometer data
-- Write-ahead logging: Always persist before transmission
-
-**Network Layer**
-- `lib/socket_client.py`: Socket.IO client with auto-reconnection
-- Real-time broadcast to server at `/iot` namespace
-- Device authentication with device_key
-
-**Background Senders**
-- `send_foot_data.py`: Batch retry process for foot data
-- `send_accel_data.py`: Batch retry process for accelerometer data
-- Poll SQLite every 30s for unsent records
-- Exponential backoff on failures (60s → 3600s max)
-
-### 3. Firefighter-Server
-
-**Data Reception**
-- Flask + Socket.IO server listening at `http://localhost:4100`
-- Namespace: `/iot`
-- Events: `foot_pressure_data`, `accelerometer_data`
-
-**Data Processing**
-- Accumulate readings into 500ms time windows
-- Convert to vectors:
-  - Foot: 18 sensors × 10 readings = 180 dimensions
-  - Accel: 9 values × 10 readings = 90 dimensions
-  - Total: 270-dimension vectors
-
-**Storage Strategy**
-- **PostgreSQL**: Session metadata (id, name, activity_type, timestamps, status)
-- **Qdrant**: Sensor vectors (270-dim) with session_id tags
-- **Separation Rationale**: SQL for queries, vector DB for similarity search
-
-**REST API**
-- Session management: Create, list, get, update, delete, stop
-- Activity types: Walking, Running, Crawling, Climbing, Standing, etc.
-- Export: CSV/JSON for ML training
-
----
-
-## Data Flow Paths
-
-### Path 1: Real-time Streaming (Normal Operation)
-
-```
-1. BLE Sensor → Notification
-   └─> Fragmented packets arrive at Raspberry Pi
-
-2. Raspberry Pi: Accumulate & Parse
-   └─> FootSensor/AccelSensor accumulates packets in buffer
-   └─> Parse complete packets (newline for foot, 20 bytes for accel)
-
-3. Throttle
-   └─> Foot: Process every 2nd packet (~10 Hz from ~20 Hz)
-   └─> Accel: Process every 5th packet (~20 Hz from ~100 Hz)
-
-4. Format Output
-   └─> Create JSON payload with timestamp and device identifier
-
-5. Dual Storage
-   a) SQLite: ALWAYS save (backup buffer)
-      └─> INSERT with sent=0 (unsent flag)
-
-   b) Socket.IO: Attempt real-time broadcast
-      └─> Emit to server at /iot namespace
-      └─> Fire-and-forget (no acknowledgment)
-
-6. Server Receives
-   └─> Accumulate into 500ms windows
-   └─> Store in Qdrant as 270-dim vector
-   └─> Associate with active PostgreSQL session
-```
-
-### Path 2: Batch Retry (Network Failure Recovery)
-
-```
-1. Polling Loop (every 30s)
-   └─> send_foot_data.py / send_accel_data.py processes run
-
-2. Fetch Unsent Records
-   └─> SELECT * FROM {table} WHERE sent = 0 LIMIT 100
-
-3. Transmit via Dual Path
-   a) Socket.IO (Primary)
-      └─> Emit each record individually
-
-   b) HTTP Webhook (Fallback)
-      └─> POST batch to configured URLs
-      └─> 10s timeout per URL
-
-4. Mark Success
-   └─> UPDATE sent = 1 WHERE id IN (...)
-
-5. Exponential Backoff on Failure
-   └─> Delay = 60s × (2 ^ consecutive_failures)
-   └─> Max delay: 3600s (1 hour)
-
-6. Cleanup
-   └─> DELETE WHERE sent = 1 AND timestamp < NOW() - 24 hours
-```
-
----
-
-## Key Design Patterns
-
-### 1. Write-Ahead Logging
-**Guarantee:** No data loss even if network fails
+The main module orchestrates:
+1. Loading configuration from environment
+2. Initializing SQLite databases
+3. Establishing Socket.IO connection
+4. Creating sensor instances
+5. Running concurrent monitoring loops
 
 ```python
-# Always write to SQLite BEFORE Socket.IO
-foot_db.save_record(data)       # Persistent backup
-socket_client.emit(...)          # Attempt real-time (may fail)
+async def main():
+    config = Config.from_env()
+
+    # Initialize databases
+    init_databases(config.database)
+
+    # Initialize Socket.IO
+    init_socket(config.socket)
+
+    # Create sensors with staggered connections
+    left_foot = FootSensor(config.ble.left_foot_mac, "LEFT_FOOT", ...)
+    tasks.append(asyncio.create_task(left_foot.monitor_loop()))
+    await asyncio.sleep(3)  # Stagger to avoid BLE stack overload
+
+    right_foot = FootSensor(config.ble.right_foot_mac, "RIGHT_FOOT", ...)
+    # ... similar for accelerometer
+
+    await asyncio.gather(*tasks)
 ```
 
-### 2. Graceful Degradation
-**Fallback Hierarchy:**
-1. **Primary**: Real-time Socket.IO broadcast
-2. **Fallback 1**: Background batch retry via Socket.IO
-3. **Fallback 2**: HTTP webhook transmission
+### Sensors Directory: `sensors/`
 
-### 3. Throttling at Source
-**Purpose**: Reduce bandwidth and processing load
+The sensor implementation follows an inheritance hierarchy:
 
-- BLE sensors produce high-frequency data (20-100 Hz)
-- Raspberry Pi throttles at packet level
-- Configurable per sensor type
-- Trade-off: Lower data rate for reliability
+```
+BLESensorBase (abstract)
+    ├── FootSensor
+    └── AccelSensor
+```
 
-### 4. Dual-Path Transmission
-**Independence**: Real-time and batch processes are decoupled
+#### `ble_sensor_base.py`
 
-- `main.py`: Real-time collection + immediate broadcast
-- `send_*.py`: Independent batch retry processes
-- Both can run simultaneously without interference
-
-### 5. Priority Connection
-**Rationale**: Critical sensors connect first
+Abstract base class providing common BLE operations:
 
 ```python
-# Connection sequence in main.py
-1. Left foot (highest priority - most important)
-2. Wait 3s
-3. Right foot
-4. Wait 3s
-5. Accelerometer (lower priority)
+class BLESensorBase(ABC):
+    def __init__(self, mac_address, device_name, data_callback, throttle, max_retries):
+        self.mac = mac_address
+        self.name = device_name
+        self.data_callback = data_callback
+        self.throttle = throttle
+        self.max_retries = max_retries
+
+    @abstractmethod
+    def _notification_handler(self, sender, raw_data):
+        """Parse incoming BLE data (sensor-specific)"""
+        pass
+
+    @abstractmethod
+    async def _start_notifications(self):
+        """Enable BLE notifications (sensor-specific)"""
+        pass
+
+    async def connect(self):
+        """Scan, connect, retry on failure"""
+
+    async def start_monitoring(self):
+        """Begin receiving notifications"""
+
+    async def stop_monitoring(self):
+        """Clean disconnect"""
+
+    async def monitor_loop(self, duration=None):
+        """Main loop: connect + monitor until stopped"""
 ```
 
----
+#### `foot_sensor.py`
 
-## Data Storage Strategy
+Foot sensor implementation (text protocol):
 
-### Raspberry Pi (sensor-hub)
+```python
+class FootSensor(BLESensorBase):
+    def _notification_handler(self, sender, raw_data):
+        # Decode UTF-8 text
+        # Buffer until newline
+        # Parse comma-separated values
+        # Call data_callback with formatted output
 
-**SQLite Databases**
-- **Location**: `./database/foot.db`, `./database/accel.db`
-- **Purpose**: Backup buffer for network failures
-- **Retention**: 24 hours after successful transmission
-- **Schema**:
-  - `foot_readings`: timestamp, device, foot, max, avg, active_count, values_json, sent
-  - `accel_readings`: timestamp, device, acc_x/y/z, gyro_x/y/z, roll/pitch/yaw, sent
-
-### Server (firefighter-server)
-
-**PostgreSQL**
-- **Purpose**: Session metadata (queryable, exportable)
-- **Schema**: id, name, activity_type, created_at, stopped_at, status, updated_at
-- **Indexes**: status, activity_type, created_at, (status, activity_type)
-
-**Qdrant Vector Database**
-- **Purpose**: Sensor data vectors for similarity search
-- **Collection**: `sensor_windows`
-- **Dimensions**: 270 (180 foot + 90 accel)
-- **Payload**: session_id, start_time, end_time, window_id, labels
-
----
-
-## Configuration
-
-### Environment Variables
-
-**Raspberry Pi (.env)**
-```bash
-# BLE Sensors
-LEFT_FOOT_MAC=XX:XX:XX:XX:XX:XX
-RIGHT_FOOT_MAC=XX:XX:XX:XX:XX:XX
-ACCELEROMETER_MAC=XX:XX:XX:XX:XX:XX
-
-# Performance Tuning
-FOOT_THROTTLE=2              # Every 2nd packet (~10 Hz)
-ACCEL_THROTTLE=5             # Every 5th packet (~20 Hz)
-CONNECTION_RETRIES=3         # Max connection attempts
-
-# Socket.IO
-SOCKETIO_SERVER_URL=http://localhost:4100
-SOCKETIO_DEVICE_KEY=firefighter_pi_001
-SOCKETIO_NAMESPACE=/iot
-SOCKETIO_ENABLED=true
-
-# Database
-DB_FOOT_FILE=./database/foot.db
-DB_ACCEL_FILE=./database/accel.db
-
-# Background Senders
-SENDER_POLLING_INTERVAL=30   # Seconds
-SENDER_MAX_RECORDS=100       # Batch size
+    async def _start_notifications(self):
+        # Enable notifications on FOOT_NOTIFY_UUID
+        # Send 'begin' command
 ```
 
-**Server (.env)**
-```bash
-# Server
-SERVER_HOST=0.0.0.0
-SERVER_PORT=4100
+#### `accel_sensor.py`
 
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=firefighter
+Accelerometer implementation (binary protocol):
 
-# Qdrant
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_COLLECTION=sensor_windows
-VECTOR_DIMENSION=270
-WINDOW_SIZE_MS=500
+```python
+class AccelSensor(BLESensorBase):
+    def _notification_handler(self, sender, raw_data):
+        # Buffer binary data
+        # Extract 20-byte packets
+        # Parse binary format
+        # Call data_callback with formatted output
+
+    async def _start_notifications(self):
+        # Discover UUIDs (device variants exist)
+        # Enable notifications
+        # Start keep-alive task
 ```
 
----
+#### `constants.py`
 
-## Performance Characteristics
+All BLE-related constants:
 
-### Data Rates
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `BLE_SCAN_TIMEOUT` | 10.0s | Time to scan for device |
+| `BLE_CONNECT_TIMEOUT` | 15.0s | Connection establishment timeout |
+| `BLE_RETRY_DELAY` | 3.0s | Delay between retry attempts |
+| `ACCEL_PACKET_SIZE` | 20 bytes | Accelerometer packet size |
+| `ACCEL_KEEPALIVE_INTERVAL` | 1.0s | Keep-alive frequency |
 
-**Native Sensor Rates:**
-- Foot sensors: ~20 Hz per foot
-- Accelerometer: ~100 Hz
+## Data Pipeline
 
-**Effective Rates (After Throttling):**
-- Foot sensors: ~10 Hz per foot (throttle=2)
-- Accelerometer: ~20 Hz (throttle=5)
-- **Total**: ~40 data points/second from Raspberry Pi
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      BLE Sensor Device                          │
+│                 (Foot Pressure / Accelerometer)                 │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ BLE Notifications
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    BLESensorBase._notification_handler()        │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  1. Buffer incoming bytes                               │   │
+│   │  2. Check throttle (skip if packet_count % throttle)    │   │
+│   │  3. Parse protocol-specific format                      │   │
+│   │  4. Create output dict with timestamp                   │   │
+│   │  5. Call data_callback (async)                          │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Data Handler (main.py)                       │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  handle_foot_data() / handle_accel_data()               │   │
+│   │    1. Save to SQLite database (backup)                  │   │
+│   │    2. Emit via Socket.IO (if connected)                 │   │
+│   │    3. Print to stdout (debug logging)                   │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└───────────────┬───────────────────────────────┬─────────────────┘
+                │                               │
+                ▼                               ▼
+┌───────────────────────────┐   ┌────────────────────────────────┐
+│     SQLite Database       │   │      Socket.IO Client          │
+│  (FootDatabase /          │   │  (SocketIOClient)              │
+│   AccelDatabase)          │   │                                │
+│                           │   │  Emits to /iot namespace:      │
+│  Stores raw records       │   │  - foot_pressure_data          │
+│  for retry/backup         │   │  - accelerometer_data          │
+└───────────────────────────┘   └────────────────────────────────┘
+```
 
-**Network Bandwidth:**
-- Foot JSON payload: ~200 bytes
-- Accel JSON payload: ~150 bytes
-- Total: ~14 KB/second sustained
+## Connection State Machine
 
-### Latency
+Each sensor follows this connection lifecycle:
 
-**Real-time Mode:**
-- BLE notification → Server: < 100ms typical
-- End-to-end: < 200ms
+```
+┌─────────┐
+│  INIT   │
+└────┬────┘
+     │ connect()
+     ▼
+┌─────────────┐     Device not found     ┌─────────────┐
+│  SCANNING   │─────────────────────────▶│   RETRY     │
+└──────┬──────┘                          └──────┬──────┘
+       │ Device found                           │ retry < max_retries
+       ▼                                        │
+┌─────────────┐                                 │
+│ CONNECTING  │◀────────────────────────────────┘
+└──────┬──────┘
+       │ Connected
+       ▼
+┌─────────────┐
+│ STABILIZING │ (200ms wait)
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  CONNECTED  │
+└──────┬──────┘
+       │ start_monitoring()
+       ▼
+┌─────────────┐
+│ MONITORING  │◀────────┐
+└──────┬──────┘         │
+       │                │ still connected
+       │ monitor_loop() │
+       └────────────────┘
+       │
+       │ disconnect or error
+       ▼
+┌─────────────┐
+│  STOPPED    │
+└─────────────┘
+```
 
-**Batch Retry Mode:**
-- Polling interval: 30 seconds
-- Backlog processing: 100 records per batch
+## Throttling
 
----
+Sensors can generate data faster than needed. Throttling reduces load:
+
+```python
+self.packet_count += 1
+if self.packet_count % self.throttle != 0:
+    return  # Skip this packet
+
+# Process packet
+```
+
+| Sensor | Default Throttle | Input Rate | Output Rate |
+|--------|------------------|------------|-------------|
+| Foot | 1 (none) | ~30 Hz | ~30 Hz |
+| Accel | 5 | ~100 Hz | ~20 Hz |
+
+## Concurrent Monitoring
+
+The `asyncio` library enables monitoring multiple sensors simultaneously:
+
+```python
+# Create tasks (non-blocking)
+tasks = [
+    asyncio.create_task(left_foot.monitor_loop()),
+    asyncio.create_task(right_foot.monitor_loop()),
+    asyncio.create_task(accelerometer.monitor_loop()),
+]
+
+# Wait for all (blocks until Ctrl+C or error)
+await asyncio.gather(*tasks)
+```
+
+Staggered starts (3-second delays) prevent BLE stack contention:
+
+```python
+# Start left foot
+tasks.append(asyncio.create_task(left_foot.monitor_loop()))
+await asyncio.sleep(3)
+
+# Then right foot
+tasks.append(asyncio.create_task(right_foot.monitor_loop()))
+await asyncio.sleep(3)
+
+# Then accelerometer
+tasks.append(asyncio.create_task(accelerometer.monitor_loop()))
+```
+
+## Socket.IO Client
+
+The `SocketIOClient` class wraps python-socketio:
+
+```python
+class SocketIOClient:
+    def __init__(self, server_url, device_key, namespace):
+        self.sio = socketio.Client()
+        self.server_url = server_url
+        self.device_key = device_key
+        self.namespace = namespace
+
+    def connect(self):
+        self.sio.connect(self.server_url, namespaces=[self.namespace])
+        self.sio.emit('authenticate', {'device_key': self.device_key})
+
+    def emit(self, event, data):
+        self.sio.emit(event, data, namespace=self.namespace)
+```
+
+Events emitted:
+- `authenticate` - On connection, with device key
+- `foot_pressure_data` - Each foot reading
+- `accelerometer_data` - Each accel reading
+
+## SQLite Storage
+
+Local SQLite databases provide backup storage:
+
+```python
+class FootDatabase:
+    def save_record(self, data):
+        # INSERT INTO foot_readings (timestamp, device, data_json)
+
+    def get_unsent(self, limit=100):
+        # SELECT * FROM foot_readings WHERE sent = 0
+
+    def mark_sent(self, ids):
+        # UPDATE foot_readings SET sent = 1 WHERE id IN (...)
+```
+
+Database files:
+- `data/foot_data.db` - Foot pressure readings
+- `data/accel_data.db` - Accelerometer readings
+
+## Configuration Classes
+
+Configuration is loaded from environment via dataclasses:
+
+```python
+@dataclass
+class BLEConfig:
+    left_foot_mac: str
+    right_foot_mac: Optional[str]
+    accelerometer_mac: Optional[str]
+    foot_throttle: int
+    accel_throttle: int
+    connection_retries: int
+
+@dataclass
+class SocketConfig:
+    enabled: bool
+    server_url: str
+    device_key: str
+    namespace: str
+
+@dataclass
+class Config:
+    ble: BLEConfig
+    socket: SocketConfig
+    database: DatabaseConfig
+
+    @classmethod
+    def from_env(cls):
+        # Load from os.environ
+```
 
 ## Error Handling
 
 ### Connection Failures
 
-**BLE Connection:**
-- Retry 3 times with 3-second delays
-- Log errors and continue with available sensors
-- Graceful degradation: System works with partial sensors
+Each sensor retries connection up to `max_retries` times:
 
-**Socket.IO Connection:**
-- Infinite auto-reconnection attempts
-- Exponential backoff: 5s → 60s max
-- SQLite buffer ensures no data loss during downtime
-
-### Data Integrity
-
-**Packet Validation:**
-- Foot: Validate newline delimiter and 24 values
-- Accel: Validate 20-byte length and header (0x55 0x61)
-- Discard malformed packets
-
-**Database Constraints:**
-- NOT NULL on critical fields
-- Indexed for query performance
-- Automatic cleanup of old data
-
----
-
-## Deployment
-
-### Raspberry Pi Setup
-
-```bash
-cd sensor-hub
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Configure .env with MAC addresses
-# Run main process
-python3 main.py
-
-# Run background senders (separate terminals)
-python3 send_foot_data.py
-python3 send_accel_data.py
-```
-
-### Server Setup
-
-```bash
-cd firefighter-server
-docker-compose up -d  # Starts PostgreSQL + Qdrant + Server
-```
-
----
-
-## Monitoring
-
-### Raspberry Pi
-
-**Logs:**
-- stdout: JSON formatted sensor data
-- Console: Connection status, errors
-
-**Database Metrics:**
 ```python
-# Check unsent records
-SELECT COUNT(*) FROM foot_readings WHERE sent = 0;
-SELECT COUNT(*) FROM accel_readings WHERE sent = 0;
+for attempt in range(1, self.max_retries + 1):
+    try:
+        device = await BleakScanner.find_device_by_address(self.mac)
+        if not device:
+            if attempt < self.max_retries:
+                await asyncio.sleep(BLE_RETRY_DELAY)
+                continue
+            return False
+        # ... connect
+    except Exception as e:
+        if attempt < self.max_retries:
+            await asyncio.sleep(BLE_RETRY_DELAY)
+        else:
+            return False
 ```
 
-### Server
+### Runtime Errors
 
-**Health Endpoint:**
-```bash
-curl http://localhost:4100/health
+Notification handler errors are caught to prevent crashing:
+
+```python
+def _notification_handler(self, sender, raw_data):
+    try:
+        # Parse data
+    except Exception as e:
+        print(f"[{self.name}] Notification error: {e}")
+        # Continue receiving
 ```
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "server": "running",
-  "qdrant": {"status": "healthy"},
-  "postgres": {"status": "healthy"},
-  "active_session": "session-uuid-here"
-}
+### Graceful Shutdown
+
+Ctrl+C triggers cleanup:
+
+```python
+async def cleanup_tasks(tasks, socket_client):
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    if socket_client:
+        socket_client.disconnect()
 ```
 
----
+## Extensibility
 
-## Future Enhancements
+To add a new sensor type:
 
-### Stage 2: Pattern Analysis
-- Analyze collected data to identify activity signatures
-- Set thresholds (e.g., "crawling = horizontal angles")
-
-### Stage 3: ML Model Training
-- Export labeled data from Qdrant
-- Train LSTM/CNN for activity classification
-- Validate model accuracy
-
-### Stage 4: Real-time Inference
-- Deploy trained model to Raspberry Pi or Server
-- Classify activities in real-time
-- Confidence scores and uncertainty handling
-
----
-
-## Related Documentation
-
-- [SENSOR_SPECIFICATIONS.md](./SENSOR_SPECIFICATIONS.md) - Detailed sensor hardware specs
-- [DATA_DICTIONARY.md](./DATA_DICTIONARY.md) - Complete data field reference
-- [ACTIVITY_DETECTION_GUIDE.md](./ACTIVITY_DETECTION_GUIDE.md) - ML feature engineering guide
-- [ML_INTEGRATION.md](./ML_INTEGRATION.md) - ML pipeline integration
+1. Create `sensors/new_sensor.py` extending `BLESensorBase`
+2. Implement `_notification_handler()` for protocol parsing
+3. Implement `_start_notifications()` for BLE setup
+4. Add MAC address config in `lib/config.py`
+5. Instantiate in `main.py` with appropriate handler

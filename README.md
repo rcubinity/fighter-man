@@ -54,9 +54,14 @@ cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bi
 cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bin/activate && python tests/realistic_activity_client.py --activity Standing --duration 300
 ```
 
-## Quick Links
+## Documentation
 
-- **[System Overview](./docs/SYSTEM_OVERVIEW.md)** - Start here! Architecture, components, and how they work together
-- [sensor-hub docs](./docs/sensor-hub/important_documents.md)
-- [firefighter-server docs](./docs/firefighter-server/important_documents.md)
-- [frontend docs](./docs/frontend/README.md)
+Each component has comprehensive documentation:
+
+| Component | README | Architecture | API/Reference |
+|-----------|--------|--------------|---------------|
+| **firefighter-server** | [README](./docs/firefighter-server/README.md) | [Architecture](./docs/firefighter-server/ARCHITECTURE.md) | [API Reference](./docs/firefighter-server/API.md) |
+| **frontend** | [README](./docs/frontend/README.md) | [Architecture](./docs/frontend/ARCHITECTURE.md) | [Socket Events](./docs/frontend/SOCKET_EVENTS.md) |
+| **sensor-hub** | [README](./docs/sensor-hub/README.md) | [Architecture](./docs/sensor-hub/ARCHITECTURE.md) | [Sensor Specs](./docs/sensor-hub/SENSORS.md) |
+
+Historical documentation is available in [docs/archived/old/](./docs/archived/old/).

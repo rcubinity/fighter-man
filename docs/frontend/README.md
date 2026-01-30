@@ -1,158 +1,193 @@
-# Frontend Documentation
+# Frontend
 
-Welcome to the Firefighter Activity Recognition frontend documentation. This interface allows operators to record training sessions with synchronized video and sensor data, then replay them for analysis.
+Browser-based user interface for the Firefighter Activity Recognition system. Provides live sensor visualization, video recording with pose detection, and session replay capabilities.
 
-## Table of Contents
+## Overview
 
-1. [Quick Start](#quick-start)
-2. [System Requirements](#system-requirements)
-3. [File Structure](#file-structure)
-4. [Detailed Guides](#detailed-guides)
-5. [Getting Help](#getting-help)
-
----
+The frontend is a single-page application that enables:
+- Creating and managing recording sessions
+- Live visualization of foot pressure and accelerometer data
+- Video capture with real-time pose skeleton overlay (MoveNet)
+- Client-side activity detection
+- Session replay with synchronized video and sensor timeline
 
 ## Quick Start
 
-Get up and running in 3 simple steps:
+### Option 1: Open Directly
 
-### 1. Start the Backend Server
-
-Make sure the firefighter-server is running:
+Open `record.html` directly in a browser:
 
 ```bash
-cd firefighter-server
-python server.py
+open /path/to/frontend/record.html
 ```
 
-Server should be accessible at `http://localhost:4100`
+Note: Some features may be limited due to file:// protocol restrictions.
 
-### 2. Open the Recording Interface
+### Option 2: Local HTTP Server (Recommended)
 
-Open `record.html` in a modern web browser:
+Serve via HTTP for full functionality:
 
 ```bash
-# From the frontend directory
-open record.html  # macOS
-# OR
-xdg-open record.html  # Linux
-# OR
-start record.html  # Windows
+cd frontend
+python -m http.server 8080
+# Then open: http://localhost:8080/record.html
 ```
 
-### 3. Grant Camera Permission
+### Prerequisites
 
-When prompted, allow camera access for video recording. You can still use the application for sensor-only recording if you decline.
+- Modern browser with WebRTC support (Chrome, Firefox, Edge)
+- Firefighter server running on `http://localhost:4100`
 
----
-
-## System Requirements
-
-### Browser Compatibility
-
-The frontend requires a modern web browser with support for:
-- MediaRecorder API (video recording)
-- WebSocket/Socket.IO (real-time sensor data)
-- ES6 JavaScript features
-
-**Supported Browsers:**
-- ✅ Chrome 90+ (Recommended)
-- ✅ Firefox 88+
-- ✅ Safari 14.1+
-- ✅ Edge 90+
-
-**Note:** HTTPS or localhost is required for camera access.
-
-### Hardware Requirements
-
-- **Camera:** Webcam or integrated camera for video recording
-- **Network:** Stable connection to firefighter-server
-- **Storage:** Browser should have sufficient disk space for video uploads
-
----
-
-## File Structure
+## Project Structure
 
 ```
 frontend/
-├── record.html                    # Main recording/replay application
+├── record.html              # Main HTML page (single-page app)
+├── css/
+│   └── record.css           # Custom styles
 └── js/
-    ├── activityDetector.js       # Real-time activity recognition
-    ├── videoRecorder.js          # Camera access & video upload
-    └── poseSketch.js             # p5.js camera + skeleton visualization
-
-docs/frontend/                     # Documentation (centralized)
-├── README.md                      # This file (getting started)
-├── ARCHITECTURE.md                # System architecture
-├── RECORDING_GUIDE.md             # How to record sessions
-├── REPLAY_GUIDE.md                # How to replay sessions
-├── ACTIVITY_DETECTION.md          # Activity recognition details
-├── VIDEO_RECORDING.md             # Video capture technical details
-├── API_INTEGRATION.md             # Server communication
-└── TROUBLESHOOTING.md             # Common issues and solutions
+    ├── app.js               # Application entry point
+    ├── config.js            # Configuration constants
+    ├── state.js             # Centralized state management
+    ├── dom.js               # DOM element references
+    ├── utils.js             # Utility functions
+    ├── socketManager.js     # Socket.IO connection handling
+    ├── sessionManager.js    # Session CRUD operations
+    ├── recordingManager.js  # Recording flow control
+    ├── replayManager.js     # Replay playback control
+    ├── sensorDisplay.js     # Sensor data visualization
+    ├── activityDisplay.js   # Activity detection display
+    ├── timelineRenderer.js  # Timeline UI rendering
+    ├── poseSketch.js        # p5.js camera + skeleton
+    ├── activityDetector.js  # Rule-based activity detection
+    └── videoRecorder.js     # MediaRecorder wrapper
 ```
 
----
+## Features
 
-## Detailed Guides
+### Recording Mode
 
-### For Operators
+1. Click "Start Recording" to begin a new session
+2. Camera activates with pose skeleton overlay
+3. Live sensor data displays in the right sidebar
+4. Activity is detected in real-time from pose data
+5. Click "Stop Recording" to end and upload video
 
-If you're recording and replaying training sessions:
+### Replay Mode
 
-- **[Recording Guide](RECORDING_GUIDE.md)** - Step-by-step instructions for recording sessions
-- **[Replay Guide](REPLAY_GUIDE.md)** - How to replay and analyze recorded sessions
-- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
+1. Select a past session from the left sidebar
+2. Video plays with synchronized sensor data
+3. Timeline shows activity segments color-coded
+4. Use playback controls (play/pause, prev/next)
 
-### For Developers
+### Live Sensor Display
 
-If you're working on the frontend code:
+**Foot Pressure:**
+- 18 vertical bars per foot showing pressure distribution
+- Max and average values displayed below
+- Updates at ~30 Hz when sensors connected
 
-- **[Architecture](ARCHITECTURE.md)** - System design and component overview
-- **[Activity Detection](ACTIVITY_DETECTION.md)** - How activity recognition works
-- **[Video Recording](VIDEO_RECORDING.md)** - MediaRecorder API implementation
-- **[API Integration](API_INTEGRATION.md)** - Communication with backend server
+**Accelerometer:**
+- Acceleration (X, Y, Z) in m/s^2
+- Gyroscope (X, Y, Z) in degrees/s
+- Angles (Roll, Pitch, Yaw) in degrees
 
----
+### Activity Detection
 
-## Getting Help
+The frontend performs client-side activity detection using pose landmarks:
 
-### Quick Troubleshooting
+| Activity | Detection Criteria |
+|----------|-------------------|
+| Standing | Upright posture, shoulders above hips |
+| Sitting | Knees bent, torso upright |
+| Lying_Down | Horizontal body position |
+| Bent_Forward | Shoulders lower than normal standing |
+| Jumping | Sudden vertical movement |
 
-**Can't connect to server?**
-- Check that firefighter-server is running at `http://localhost:4100/health`
-- Verify Socket.IO connection (status shown in top-right corner)
+Detection results are sent to the server to label sensor windows.
 
-**Camera not working?**
-- Check browser permissions (click lock icon in address bar)
-- Close other applications using the camera
-- See [Troubleshooting Guide](TROUBLESHOOTING.md) for more details
+## External Dependencies
 
-**No sensor data appearing?**
-- Ensure Raspberry Pi with sensors is running
-- Check that sensor-hub is streaming to server
-- Verify Socket.IO connection status (should show "Connected")
+Loaded via CDN in `record.html`:
 
-### Additional Resources
+| Library | Version | Purpose |
+|---------|---------|---------|
+| Socket.IO | 4.7.2 | Real-time communication |
+| p5.js | 1.9.0 | Canvas rendering |
+| ml5.js | 1.x | MoveNet pose detection |
+| Tailwind CSS | CDN | Utility-first styling |
 
-- **Server Documentation:** `/firefighter-server/docs/`
-- **Sensor Documentation:** `/sensor-hub/docs/`
-- **Issue Tracker:** Report bugs and request features via your project repository
+## Configuration
 
----
+Edit `js/config.js` to change settings:
 
-## Project Purpose
+```javascript
+const CONFIG = {
+    SERVER_URL: 'http://localhost:4100',
+    CAMERA_TIMEOUT_MS: 5000,
+    ML5_MODEL_TIMEOUT_MS: 10000,
+    VIDEO_MAX_SIZE_MB: 500,
+    REPLAY_BATCH_SIZE: 20,
+    REPLAY_PRELOAD_OFFSET: 10,
+    REPLAY_BASE_INTERVAL_MS: 100,
+    RECORDING_TIMER_INTERVAL_MS: 1000,
+    SOCKET_RECONNECTION_ATTEMPTS: 5,
+    SOCKET_RECONNECTION_DELAY_MS: 1000,
+};
+```
 
-This frontend is part of the Firefighter Activity Recognition system, designed to:
+## UI Layout
 
-1. **Record Training Sessions** - Capture sensor data and video during firefighter training
-2. **Detect Activities** - Recognize activities (Standing, Sitting, Crawling, etc.) in real-time
-3. **Replay & Analyze** - Review sessions with synchronized video and sensor visualization
-4. **Support ML Training** - Provide labeled data for machine learning models
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Header: Title + Connection Status                              │
+├──────────────┬────────────────────────────┬─────────────────────┤
+│              │                            │                     │
+│  Left        │   Center                   │   Right             │
+│  Sidebar     │   Area                     │   Sidebar           │
+│              │                            │                     │
+│  - Session   │   - Video/Pose Preview     │   - Foot Pressure   │
+│    Name      │   - Recording State        │     Visualization   │
+│  - Record    │   - Replay Controls        │   - Accelerometer   │
+│    Button    │   - Activity Display       │     Values          │
+│  - Past      │                            │                     │
+│    Sessions  │                            │                     │
+│              │                            │                     │
+├──────────────┴────────────────────────────┴─────────────────────┤
+│  Timeline: Time markers + Activity segments + Playhead          │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-The system uses foot pressure sensors (18 per foot) and a 9-axis IMU (accelerometer + gyroscope) to detect firefighter activities during training drills.
+## Browser Compatibility
 
----
+| Browser | Support | Notes |
+|---------|---------|-------|
+| Chrome | Full | Recommended |
+| Firefox | Full | |
+| Safari | Partial | WebRTC may require permissions |
+| Edge | Full | |
 
-**Document Version:** 1.0
-**Last Updated:** December 24, 2025
+## Troubleshooting
+
+### Camera Not Working
+
+- Check browser permissions for camera access
+- Ensure no other app is using the camera
+- Try a different browser
+
+### Not Connecting to Server
+
+- Verify server is running on port 4100
+- Check browser console for CORS errors
+- Ensure `SERVER_URL` in config matches server address
+
+### Video Upload Fails
+
+- Check file size is under limit (500 MB default)
+- Verify server has write permissions to video directory
+- Check browser console for upload errors
+
+## Related Documentation
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - Code structure and module interactions
+- [SOCKET_EVENTS.md](./SOCKET_EVENTS.md) - Socket.IO event reference

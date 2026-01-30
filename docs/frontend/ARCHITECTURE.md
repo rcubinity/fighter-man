@@ -1,382 +1,444 @@
 # Frontend Architecture
 
-This document explains how the frontend components work together to create a unified recording and replay experience.
+This document describes the internal architecture of the frontend component, including module organization, state management, and data flow.
 
-## Table of Contents
+## Code Organization
 
-1. [System Overview](#system-overview)
-2. [Component Breakdown](#component-breakdown)
-3. [Data Flow](#data-flow)
-4. [State Management](#state-management)
-5. [Communication Protocols](#communication-protocols)
+The frontend was recently refactored from inline JavaScript in `record.html` into modular ES6 files for better maintainability.
 
----
+### Module Loading Order
 
-## System Overview
+Scripts are loaded in a specific order in `record.html` due to dependencies:
 
-The frontend consists of a single-page application (`record.html`) that handles both recording and replay modes, coordinating between camera input, sensor data streams, and activity detection.
+```html
+<!-- External libraries (no dependencies) -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
 
-### High-Level Architecture
+<!-- Standalone modules (no dependencies on our code) -->
+<script src="js/activityDetector.js"></script>
+<script src="js/videoRecorder.js"></script>
+<script src="js/poseSketch.js"></script>
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Frontend (Browser)                        │
-│                                                               │
-│  ┌────────────────┐      ┌──────────────────┐               │
-│  │   Camera API   │      │   Socket.IO      │               │
-│  │  (MediaDevices)│      │     Client       │               │
-│  └───────┬────────┘      └────────┬─────────┘               │
-│          │                        │                          │
-│          │  Video Stream          │  Sensor Data Stream      │
-│          ▼                        ▼                          │
-│  ┌──────────────────────────────────────────────┐           │
-│  │          record.html (Main UI)                │           │
-│  │  ┌───────────────┐     ┌────────────────┐   │           │
-│  │  │ videoRecorder │     │  activityDet   │   │           │
-│  │  │     .js       │     │   ector.js     │   │           │
-│  │  └───────┬───────┘     └────────┬───────┘   │           │
-│  │          │  Upload              │ Detect     │           │
-│  │          │  Video               │ Activity   │           │
-│  │          ▼                      ▼            │           │
-│  │  ┌──────────────────────────────────────┐   │           │
-│  │  │         Session Manager               │   │           │
-│  │  │  (UI State, Timeline, Playback)       │   │           │
-│  │  └────────┬─────────────────────────────┘   │           │
-│  └───────────┼──────────────────────────────────┘           │
-│              │ REST API                                      │
-└──────────────┼───────────────────────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│         Firefighter Server (Flask + Socket.IO)               │
-│  - Video upload/download endpoints                           │
-│  - Sensor data streaming (Socket.IO /iot namespace)          │
-│  - Session management (CRUD operations)                      │
-│  - PostgreSQL (session metadata + video paths)               │
-│  - Qdrant (sensor vector storage)                            │
-│  - File System (video file storage)                          │
-└─────────────────────────────────────────────────────────────┘
+<!-- Core modules (order matters) -->
+<script src="js/config.js"></script>        <!-- No dependencies -->
+<script src="js/state.js"></script>          <!-- Uses CONFIG -->
+<script src="js/dom.js"></script>            <!-- No dependencies -->
+<script src="js/utils.js"></script>          <!-- No dependencies -->
+<script src="js/sensorDisplay.js"></script>  <!-- Uses state vars -->
+<script src="js/activityDisplay.js"></script> <!-- Uses state vars -->
+<script src="js/socketManager.js"></script>  <!-- Uses CONFIG, state, display -->
+<script src="js/recordingManager.js"></script> <!-- Uses everything -->
+<script src="js/sessionManager.js"></script>   <!-- Uses everything -->
+<script src="js/replayManager.js"></script>    <!-- Uses everything -->
+<script src="js/timelineRenderer.js"></script> <!-- Uses state vars -->
+<script src="js/app.js"></script>              <!-- Entry point -->
 ```
 
----
+## Module Responsibilities
 
-## Component Breakdown
+### Core Infrastructure
 
-### 1. record.html (Main UI)
+#### `config.js`
+Configuration constants. Single source of truth for settings.
 
-**Purpose:** Single-page application that orchestrates all functionality
-
-**Responsibilities:**
-- UI state management (idle, recording, replaying)
-- Session list rendering and selection
-- Timeline visualization with activity segments
-- Real-time sensor data visualization (foot pressure, accelerometer)
-- Playback controls and seek functionality
-
-**Key Variables:**
 ```javascript
-let currentSessionId = null;        // Active recording session ID
-let activeState = 'idle';            // Current UI state
-let videoRecorder = null;            // VideoRecorder instance
-let replayTimer = null;              // Replay playback timer
-let replayStartTime = null;          // Replay start timestamp
+const CONFIG = {
+    SERVER_URL: 'http://localhost:4100',
+    REPLAY_BATCH_SIZE: 20,
+    // ... other settings
+};
 ```
 
-**States:**
-- **idle**: No recording or replay active
-- **recording**: Camera and sensors actively recording
-- **stopped**: Recording finished, awaiting upload
-- **uploading**: Video uploading to server
-- **replaying**: Playing back a recorded session
+#### `state.js`
+Centralized mutable state. All modules read/write to these global variables.
 
-### 2. videoRecorder.js
-
-**Purpose:** Browser-based video recording using MediaRecorder API
-
-**Class:** `VideoRecorder`
-
-**Methods:**
 ```javascript
-async init(previewElementId)          // Request camera access
-async startRecording(sessionId)       // Begin video capture
-async stopRecording()                 // Stop and create video blob
-async uploadVideo(sessionId, blob)    // Upload via HTTP POST
-async uploadVideoWithProgress(...)    // Upload with progress tracking
-destroy()                             // Clean up resources
-static isSupported()                  // Check browser compatibility
+// Recording state
+let isRecording = false;
+let currentSessionId = null;
+let recordingStartTime = null;
+
+// Replay state
+let replayWindows = [];
+let replayCurrentWindowIndex = 0;
+let isReplaying = false;
+
+// Managers
+let activityDetector = null;
+let videoRecorder = null;
+let poseSketch = null;
 ```
 
-**State Flow:**
-```
-idle → recording → stopped → uploading → idle
-```
+#### `dom.js`
+DOM element references (currently minimal, stores element selectors).
 
-**Configuration:**
-- Resolution: 1280x720 (HD)
-- Frame Rate: 30 FPS
-- Bitrate: 2.5 Mbps
-- Format: WebM (VP9 codec, VP8 fallback)
+#### `utils.js`
+Utility functions like `formatTime()` and `throttle()`.
 
-### 3. activityDetector.js
+### Communication
 
-**Purpose:** Real-time activity recognition from sensor data
+#### `socketManager.js`
+Handles Socket.IO connection and event routing.
 
-**Function:** `detectActivity(footData, accelData)`
-
-**Inputs:**
-- `footData`: Array of 36 foot pressure values (18 per foot)
-- `accelData`: Object with acc, gyro, angle (9 values total)
-
-**Outputs:**
 ```javascript
-{
-  activity: "Standing",    // Detected activity name
-  confidence: 85           // Confidence percentage (0-100)
+function connectSocket() {
+    const iotSocket = io(`${SERVER_URL}/iot`, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+    });
+
+    // Connection events
+    iotSocket.on('connect', () => updateConnectionStatus(true));
+    iotSocket.on('disconnect', () => updateConnectionStatus(false));
+
+    // Sensor data events -> display updates
+    iotSocket.on('foot_data', (data) => {
+        updateFootDisplay(data);
+        if (activityDetector && isRecording) {
+            activityDetector.updateFootData(data.data);
+        }
+    });
+
+    iotSocket.on('accel_data', (data) => {
+        updateAccelDisplay(data);
+        if (activityDetector && isRecording) {
+            activityDetector.updateAccelData(data.data);
+            const result = activityDetector.detectActivity();
+            updateActivityDisplay(result.activity, result.confidence);
+        }
+    });
 }
 ```
 
-**Detected Activities:**
-- Standing
-- Sitting
-- Bent_Forward
-- Lying_Down
-- Jumping
+### Display Modules
 
-**Detection Logic:**
-1. Calculate features (variance, averages, angles)
-2. Apply rule-based classification
-3. Return activity + confidence score
+#### `sensorDisplay.js`
+Updates foot pressure bars and accelerometer values.
 
----
+```javascript
+function updateFootDisplay(data) {
+    // Update 18 bars for left or right foot
+    // Update max/avg values
+    // Increment reading counts if recording
+}
+
+function updateAccelDisplay(data) {
+    // Update acc X/Y/Z values
+    // Update gyro X/Y/Z values
+    // Update angle roll/pitch/yaw
+}
+```
+
+#### `activityDisplay.js`
+Shows detected activity with confidence and SVG icons.
+
+```javascript
+const activitySvgMap = {
+    'Sitting': `<svg>...</svg>`,
+    'Standing': `<svg>...</svg>`,
+};
+
+function updateActivityDisplay(activity, confidence) {
+    // Update activity label with color coding
+    // Show corresponding SVG icon
+}
+```
+
+#### `timelineRenderer.js`
+Renders timeline with time markers and activity segments.
+
+```javascript
+function updateTimeline(session) {
+    // Generate time markers (1 second intervals)
+    // Group consecutive windows with same label
+    // Render colored activity segment bars
+}
+```
+
+### Flow Control
+
+#### `recordingManager.js`
+Manages recording lifecycle.
+
+```javascript
+async function startRecording() {
+    // 1. Show video container
+    // 2. Create p5.js pose sketch with camera
+    // 3. Create session on server
+    // 4. Start video recording
+    // 5. Update UI state
+}
+
+async function stopRecording() {
+    // 1. Stop server session
+    // 2. Stop pose sketch
+    // 3. Stop and upload video
+    // 4. Update UI state
+}
+```
+
+#### `sessionManager.js`
+CRUD operations for sessions.
+
+```javascript
+async function loadSessions() {
+    // Fetch all sessions from API
+    // Render session list in sidebar
+}
+
+async function selectSession(sessionId) {
+    // Stop any active replay
+    // Fetch replay data and metadata
+    // Initialize replay state
+    // Load video if available
+    // Update timeline
+}
+```
+
+#### `replayManager.js`
+Playback control for session replay.
+
+```javascript
+function startReplay() {
+    // Set isReplaying = true
+    // Start video playback
+    // Start timer for sensor data playback
+}
+
+function playNextReading() {
+    // Get current window from buffer
+    // Display foot/accel readings
+    // Advance reading index
+    // Preload next batch if needed
+}
+```
+
+### Standalone Components
+
+#### `activityDetector.js`
+Rule-based activity detection from pose landmarks.
+
+```javascript
+class ActivityDetector {
+    updateFootData(data) { /* buffer foot data */ }
+    updateAccelData(data) { /* buffer accel data */ }
+    detectActivity() {
+        // Analyze pose landmarks
+        // Return {activity, confidence}
+    }
+}
+```
+
+#### `videoRecorder.js`
+MediaRecorder wrapper for video capture.
+
+```javascript
+class VideoRecorder {
+    async startRecording(sessionId) { /* start MediaRecorder */ }
+    async stopRecording() { /* stop and get blob */ }
+    async uploadVideoWithProgress(sessionId, onProgress) { /* upload to server */ }
+}
+```
+
+#### `poseSketch.js`
+p5.js sketch for camera + skeleton overlay.
+
+```javascript
+function createPoseSketch(containerId, options) {
+    // Create p5 instance
+    // Initialize camera capture
+    // Load ml5 MoveNet model
+    // Draw skeleton on canvas
+    // Return control object with getCanvasStream()
+}
+```
 
 ## Data Flow
 
-### Recording Flow
+### Recording Data Flow
 
 ```
-1. User clicks "Start Recording"
-   ↓
-2. Create session on server (POST /api/sessions)
-   ↓
-3. Initialize video recorder → Request camera access
-   ↓
-4. Start video recording (MediaRecorder.start())
-   ↓
-5. Sensor data streams via Socket.IO
-   ├─> foot_data event → Display pressure visualization
-   └─> accel_data event → Display accelerometer values
-   ↓
-6. Activity detector processes incoming sensor data
-   ↓
-7. User clicks "Stop Recording"
-   ↓
-8. Stop video recording → Create video blob
-   ↓
-9. Stop session on server (POST /api/sessions/:id/stop)
-   ↓
-10. Upload video blob (POST /api/sessions/:id/upload-video)
-    ↓
-11. Server saves video file and updates session record
-    ↓
-12. Return to idle state
+┌─────────────────────────────────────────────────────────────────┐
+│                         Socket.IO                                │
+│                 (foot_data / accel_data events)                  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     socketManager.js                             │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  Event Handler                                          │   │
+│   │    1. Call updateFootDisplay() / updateAccelDisplay()   │   │
+│   │    2. If recording: update activityDetector             │   │
+│   │    3. If recording: emit activity_detected to server    │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└───────────────┬───────────────────────────────┬─────────────────┘
+                │                               │
+                ▼                               ▼
+┌───────────────────────────┐   ┌────────────────────────────────┐
+│    sensorDisplay.js       │   │     activityDetector.js        │
+│  - Update pressure bars   │   │  - Buffer sensor data          │
+│  - Update accel values    │   │  - Analyze pose landmarks      │
+│  - Increment counters     │   │  - Return activity + confidence│
+└───────────────────────────┘   └───────────────┬────────────────┘
+                                                │
+                                                ▼
+                                ┌────────────────────────────────┐
+                                │     activityDisplay.js         │
+                                │  - Show activity label         │
+                                │  - Color-code confidence       │
+                                │  - Display SVG icon            │
+                                └────────────────────────────────┘
 ```
 
-### Replay Flow
+### Replay Data Flow
 
 ```
-1. User selects session from list
-   ↓
-2. Fetch replay data (GET /api/sessions/:id/replay)
-   ├─> Session metadata (name, timestamps)
-   ├─> Sensor windows (time-ordered data)
-   └─> Video path (if available)
-   ↓
-3. If video exists:
-   ├─> Load video (GET /api/sessions/:id/video)
-   └─> Show video player on left
-   Else:
-   └─> Show placeholder ("No video available")
-   ↓
-4. Build timeline with activity segments
-   ↓
-5. User clicks "Play"
-   ↓
-6. Start replay timer (updates every 100ms)
-   ├─> Update playhead position on timeline
-   ├─> Display corresponding sensor data
-   ├─> Show detected activity for current time
-   └─> Sync video playback (if available)
-   ↓
-7. User seeks on timeline
-   ↓
-8. Update video.currentTime to match sensor timestamp
-   ↓
-9. User clicks "Pause" or replay completes
-   ↓
-10. Stop replay timer, pause video
+┌─────────────────────────────────────────────────────────────────┐
+│                     sessionManager.js                            │
+│                    selectSession(sessionId)                      │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        │                   │                   │
+        ▼                   ▼                   ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────────────┐
+│ GET /replay   │   │ GET /windows  │   │ GET /video            │
+│ (raw data)    │   │ (metadata)    │   │ (HTTP stream)         │
+└───────┬───────┘   └───────┬───────┘   └───────────┬───────────┘
+        │                   │                       │
+        ▼                   ▼                       ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────────────┐
+│ replayWindows │   │ updateTimeline│   │ <video> element       │
+│ (state.js)    │   │ (renderer.js) │   │ src = video URL       │
+└───────┬───────┘   └───────────────┘   └───────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     replayManager.js                             │
+│                     playNextReading()                            │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  Timer Loop (100ms intervals)                           │   │
+│   │    1. Get current window from buffer                    │   │
+│   │    2. Parse raw_data JSON                               │   │
+│   │    3. Call updateFootDisplay() with reading             │   │
+│   │    4. Call updateAccelDisplay() with reading            │   │
+│   │    5. Update playhead position                          │   │
+│   │    6. Sync video if drift detected                      │   │
+│   │    7. Advance index, preload if needed                  │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
----
 
 ## State Management
 
-### UI States
+The frontend uses simple global variables in `state.js` rather than a framework:
 
-The application manages state through simple JavaScript variables and CSS classes:
+**Recording State:**
+- `isRecording` - Boolean flag
+- `currentSessionId` - Active session UUID
+- `recordingStartTime` - Timestamp for duration display
+- `recordingTimer` - setInterval handle
+- `footReadingCount` / `accelReadingCount` - Counters
+
+**Replay State:**
+- `replayWindows` - Loaded windows with raw data
+- `replayWindowsMetadata` - Lightweight metadata for timeline
+- `replayCurrentWindowIndex` - Current playback position
+- `isReplaying` - Boolean flag
+- `replayTimer` - setInterval handle
+- `replaySessionDuration` - Total duration in seconds
+
+**Managers:**
+- `activityDetector` - ActivityDetector instance
+- `videoRecorder` - VideoRecorder instance
+- `poseSketch` - p5.js sketch control object
+
+## Event Handling
+
+HTML onclick handlers are exposed via `window` in `app.js`:
 
 ```javascript
-// State variables
-let activeState = 'idle';            // Current mode
-let currentSessionId = null;         // Active session
-let videoRecorder = null;            // Video recording instance
-let isReplaying = false;             // Replay active flag
+window.toggleRecording = toggleRecording;
+window.selectSession = selectSession;
+window.deleteSession = deleteSession;
+window.renameSession = renameSession;
+window.replayControl = replayControl;
+window.zoomTimeline = zoomTimeline;
+```
 
-// State transitions
-function setState(newState) {
-    activeState = newState;
+This allows HTML like:
+```html
+<button onclick="toggleRecording()">Start Recording</button>
+<button onclick="selectSession('uuid')">Session Name</button>
+```
 
-    // Show/hide state-specific UI
-    document.getElementById('idleState').classList.toggle('hidden', newState !== 'idle');
-    document.getElementById('recordingState').classList.toggle('hidden', newState !== 'recording');
-    document.getElementById('replayState').classList.toggle('hidden', newState !== 'replaying');
+## Video Recording Pipeline
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Camera    │────▶│  p5.js      │────▶│  Canvas     │
+│   (WebRTC)  │     │  + MoveNet  │     │  (skeleton) │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                                               │ captureStream()
+                                               ▼
+                                        ┌─────────────┐
+                                        │ MediaStream │
+                                        └──────┬──────┘
+                                               │
+                                               │ new MediaRecorder(stream)
+                                               ▼
+                                        ┌─────────────┐
+                                        │ MediaRecorder│
+                                        └──────┬──────┘
+                                               │
+                                               │ ondataavailable
+                                               ▼
+                                        ┌─────────────┐
+                                        │ Blob chunks │
+                                        └──────┬──────┘
+                                               │
+                                               │ new Blob(chunks, type)
+                                               ▼
+                                        ┌─────────────┐
+                                        │ Video Blob  │
+                                        └──────┬──────┘
+                                               │
+                                               │ FormData + fetch
+                                               ▼
+                                        ┌─────────────┐
+                                        │   Server    │
+                                        │ /upload-video│
+                                        └─────────────┘
+```
+
+## CSS Architecture
+
+Styles use a combination of:
+- **Tailwind CSS** (via CDN) - Utility classes in HTML
+- **Custom CSS** (`css/record.css`) - Component-specific styles
+
+Custom styles handle:
+- Recording pulse animation
+- Sensor bar transitions
+- Video container positioning
+- Recording indicator overlay
+
+## Error Handling
+
+Errors are handled at the module level with:
+- Console logging for debugging
+- User alerts for critical failures
+- Graceful degradation where possible
+
+```javascript
+try {
+    await videoRecorder.startRecording(sessionId);
+} catch (error) {
+    console.warn('[Video] Failed to start:', error.message);
+    // Continue without video recording
 }
 ```
-
-### Video Recorder States
-
-```javascript
-// VideoRecorder internal states
-this.state = 'idle';  // idle, recording, stopped, uploading
-
-// Allowed transitions:
-// idle → recording (when startRecording called)
-// recording → stopped (when stopRecording called)
-// stopped → uploading (when uploadVideo called)
-// uploading → idle (when upload completes)
-```
-
-### Session States (Server-side)
-
-```javascript
-// Session status field (PostgreSQL)
-status: "recording"  // recording, stopped, completed
-```
-
----
-
-## Communication Protocols
-
-### REST API (HTTP)
-
-**Used for:**
-- Session CRUD operations
-- Video upload/download
-- Fetching replay data
-
-**Base URL:** `http://localhost:4100`
-
-**Key Endpoints:**
-- `POST /api/sessions` - Create session
-- `GET /api/sessions` - List all sessions
-- `GET /api/sessions/:id` - Get session details
-- `PUT /api/sessions/:id` - Update session (rename)
-- `DELETE /api/sessions/:id` - Delete session
-- `POST /api/sessions/:id/stop` - Stop recording
-- `POST /api/sessions/:id/upload-video` - Upload video file
-- `GET /api/sessions/:id/video` - Stream video (supports Range requests)
-- `GET /api/sessions/:id/replay` - Get replay data
-
-### Socket.IO (WebSocket)
-
-**Used for:**
-- Real-time sensor data streaming
-- Session status updates
-
-**Namespace:** `/iot`
-
-**Events (Server → Client):**
-```javascript
-socket.on('connect', () => {
-    // Connection established
-});
-
-socket.on('foot_data', (data) => {
-    // { data: { foot: 'L', values: [18 pressure values], max, avg } }
-    updateFootVisualization(data);
-});
-
-socket.on('accel_data', (data) => {
-    // { data: { acc: {x, y, z}, gyro: {x, y, z}, angle: {roll, pitch, yaw} } }
-    updateAccelDisplay(data);
-
-    // Run activity detection
-    const activity = detectActivity(currentFootData, data.data);
-    displayActivity(activity);
-});
-
-socket.on('session_started', (data) => {
-    // { session_id, name }
-    console.log('Recording started:', data.session_id);
-});
-
-socket.on('session_stopped', (data) => {
-    // { session_id }
-    console.log('Recording stopped:', data.session_id);
-});
-```
-
----
-
-## Performance Considerations
-
-### Video Recording
-
-- **Memory Usage:** Video chunks accumulate in browser memory during recording
-  - Solution: Chunks released when recording stops
-  - Consideration: Very long recordings (>30 min) may use significant RAM
-
-- **Upload Time:** Depends on video size and network speed
-  - Typical: 2-5 MB/min of recording at 2.5 Mbps
-  - 10-minute session ≈ 25 MB ≈ 5-10 seconds upload on good connection
-
-### Sensor Data Streaming
-
-- **Update Frequency:**
-  - Foot pressure: 10-20 Hz (every 50-100ms)
-  - Accelerometer: 20-100 Hz (every 10-50ms)
-
-- **Rendering Optimization:**
-  - Activity detection runs only when both foot and accel data available
-  - UI updates throttled to avoid excessive redraws
-  - Timeline uses pre-calculated activity segments (not recalculated on every frame)
-
-### Timeline Rendering
-
-- **Large Sessions:** Sessions with thousands of sensor windows (>30 min) render efficiently
-  - SVG-based timeline with activity segment rectangles
-  - Playhead updates every 100ms (smooth enough for visual sync)
-  - Video sync only corrects drift >2 seconds (avoids excessive seeking)
-
----
-
-## Browser Compatibility Notes
-
-### MediaRecorder API
-
-- **Chrome/Edge:** Excellent VP9 support
-- **Firefox:** VP8 codec (slightly lower quality than VP9)
-- **Safari:** Limited WebM support (may need H.264 fallback in future)
-
-### Socket.IO
-
-- Universally supported (uses WebSocket when available, falls back to polling)
-
-### ES6 Features
-
-- Arrow functions, async/await, template literals
-- Requires modern browser (IE11 not supported)
-
----
-
-**Document Version:** 1.0
-**Last Updated:** December 24, 2025
