@@ -121,6 +121,9 @@ async function startRecording() {
         document.getElementById('activityLabel').textContent = 'Waiting...';
         document.getElementById('activityConfidence').textContent = '';
 
+        // Clear session name input after successful start
+        document.getElementById('sessionName').value = '';
+
         // Update UI (show recording indicator)
         updateRecordingUI(true);
         startRecordingTimer();
@@ -148,13 +151,27 @@ async function stopRecording() {
     const sessionId = currentSessionId;
 
     try {
-        // Stop server-side session
-        const response = await fetch(`${SERVER_URL}/api/sessions/${sessionId}/stop`, {
-            method: 'POST'
-        });
+        // Stop server-side session with retry logic
+        let response;
+        let lastError;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                response = await fetch(`${SERVER_URL}/api/sessions/${sessionId}/stop`, {
+                    method: 'POST'
+                });
+                if (response.ok) break;
+                lastError = new Error(`HTTP ${response.status}`);
+            } catch (fetchError) {
+                lastError = fetchError;
+                console.warn(`[Recording] Stop attempt ${attempt} failed:`, fetchError.message);
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retry
+                }
+            }
+        }
 
-        if (!response.ok) {
-            throw new Error('Failed to stop session');
+        if (!response || !response.ok) {
+            throw lastError || new Error('Failed to stop session after retries');
         }
 
         isRecording = false;
