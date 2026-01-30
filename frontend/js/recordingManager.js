@@ -49,23 +49,32 @@ async function startRecording() {
     const sessionName = document.getElementById('sessionName').value;
 
     try {
-        // Show video container first
+        // Show video container (pre-loaded during init)
         const videoContainer = document.getElementById('video-container');
         videoContainer.classList.remove('hidden');
+        videoContainer.style.visibility = 'visible';
+        videoContainer.style.position = 'relative';
+        videoContainer.style.left = '0';
 
-        // Create p5.js pose sketch with camera and skeleton
-        console.log('[Pose] Creating p5.js pose sketch...');
-        poseSketch = createPoseSketch('video-container', {
-            width: 640,
-            height: 480,
-            mirror: true,
-            showSkeleton: true,
-            showKeypoints: true,
-            confidenceThreshold: 0.3
-        });
+        // Use the pre-loaded pose sketch from InitLoader
+        if (InitLoader.preloadedPoseSketch) {
+            poseSketch = InitLoader.preloadedPoseSketch;
+            console.log('[Pose] Using pre-loaded pose sketch');
+        } else {
+            // Fallback: create new sketch if not pre-loaded
+            console.log('[Pose] Creating new pose sketch (fallback)...');
+            poseSketch = createPoseSketch('video-container', {
+                width: 640,
+                height: 480,
+                mirror: true,
+                showSkeleton: true,
+                showKeypoints: true,
+                confidenceThreshold: 0.3
+            });
+        }
 
-        // Wait for the sketch to be ready and get the canvas stream
-        console.log('[Video] Waiting for pose sketch canvas to be ready...');
+        // Get the canvas stream (should be ready immediately if pre-loaded)
+        console.log('[Video] Getting pose sketch canvas stream...');
         const canvasStream = await poseSketch.getCanvasStream();
         console.log('[Video] Got canvas stream with skeleton overlay');
 
@@ -156,12 +165,13 @@ async function stopRecording() {
             activityDetector.reset();
         }
 
-        // Stop pose sketch (p5.js)
-        if (poseSketch) {
-            poseSketch.stop();
-            poseSketch = null;
-            console.log('[Pose] Pose sketch stopped');
-        }
+        // Don't stop pose sketch - keep it running for next recording
+        // Just hide the video container
+        const videoContainer = document.getElementById('video-container');
+        videoContainer.style.visibility = 'hidden';
+        videoContainer.style.position = 'absolute';
+        videoContainer.style.left = '-9999px';
+        console.log('[Pose] Pose sketch hidden (kept alive for next recording)');
 
         updateRecordingUI(false);
 
@@ -242,7 +252,11 @@ function updateRecordingUI(recording, activityType = '') {
         recordingState.classList.remove('hidden');
         document.getElementById('selectedActivity').textContent = activityType;
 
-        // Show recording indicator (video container already shown by startRecording)
+        // Show video container and recording indicator
+        videoContainer.classList.remove('hidden');
+        videoContainer.style.visibility = 'visible';
+        videoContainer.style.position = 'relative';
+        videoContainer.style.left = '0';
         recordingIndicator.classList.remove('hidden');
     } else {
         btn.innerHTML = `
@@ -255,8 +269,10 @@ function updateRecordingUI(recording, activityType = '') {
         recordingState.classList.add('hidden');
         replayState.classList.add('hidden');
 
-        // Hide video preview and recording indicator
-        videoContainer.classList.add('hidden');
+        // Hide video preview (keep it in DOM for reuse) and recording indicator
+        videoContainer.style.visibility = 'hidden';
+        videoContainer.style.position = 'absolute';
+        videoContainer.style.left = '-9999px';
         recordingIndicator.classList.add('hidden');
     }
 }

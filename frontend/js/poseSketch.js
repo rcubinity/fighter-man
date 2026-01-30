@@ -2,7 +2,7 @@
  * P5.js-based Pose Detection Sketch
  * Uses p5.js instance mode to avoid global conflicts
  *
- * Based on the working ml5-simple implementation
+ * Handles camera capture and ML5 model loading internally
  */
 
 // Global reference to the sketch instance
@@ -23,7 +23,12 @@ function createPoseSketch(containerId, options = {}) {
         showSkeleton: options.showSkeleton !== false,
         showKeypoints: options.showKeypoints !== false,
         confidenceThreshold: options.confidenceThreshold || 0.3,
-        onPoseDetected: options.onPoseDetected || null
+        onPoseDetected: options.onPoseDetected || null,
+        onCameraReady: options.onCameraReady || null,
+        onCameraError: options.onCameraError || null,
+        onModelReady: options.onModelReady || null,
+        onModelError: options.onModelError || null,
+        onReady: options.onReady || null
     };
 
     let video = null;
@@ -58,12 +63,17 @@ function createPoseSketch(containerId, options = {}) {
             p.fill(180);
             p.text('Recording will continue without video', p.width/2, p.height/2 + 20);
 
+            // Notify of camera error
+            if (config.onCameraError) {
+                config.onCameraError(reason);
+            }
+
             isRunning = true;
             poseSketchReady = true;
             console.log('[PoseSketch] Marked ready without video/pose detection');
         }
 
-        // Setup - create canvas and video, then load model
+        // Setup - create canvas and video, then load/use model
         p.setup = function() {
             console.log('[PoseSketch] Setup starting...');
 
@@ -81,15 +91,15 @@ function createPoseSketch(containerId, options = {}) {
             p.textSize(20);
             p.text('Starting camera...', p.width/2, p.height/2);
 
-            // Set a fallback timeout - if video doesn't initialize within 5 seconds,
+            // Set a fallback timeout - if video doesn't initialize within timeout,
             // mark as ready without video so recording can proceed
             fallbackTimeout = setTimeout(() => {
                 if (!poseSketchReady) {
                     markReadyWithoutVideo('Camera timeout - proceeding without video');
                 }
-            }, 5000);
+            }, CONFIG.CAMERA_TIMEOUT_MS);
 
-            // Create video capture
+            // Create video capture (this requests camera permission)
             try {
                 video = p.createCapture(p.VIDEO, function() {
                     // Clear fallback timeout since video is ready
@@ -98,44 +108,55 @@ function createPoseSketch(containerId, options = {}) {
                         fallbackTimeout = null;
                     }
 
-                    console.log('[PoseSketch] Video capture ready, now loading ml5...');
+                    console.log('[PoseSketch] Video capture ready');
+                    console.log('[PoseSketch] Video dimensions:', video.elt.videoWidth, 'x', video.elt.videoHeight);
 
-                    // Update loading message
+                    // Notify that camera is ready
+                    if (config.onCameraReady) {
+                        config.onCameraReady();
+                    }
+
+                    // Load ML5 model
+                    console.log('[PoseSketch] Loading ML5 model...');
+
                     p.background(0);
                     p.fill(255);
                     p.textAlign(p.CENTER, p.CENTER);
                     p.textSize(20);
                     p.text('Loading ML5 model...', p.width/2, p.height/2);
 
-                    // Load ml5 bodyPose model using callback pattern
-                    console.log('[PoseSketch] Loading ml5.bodyPose...');
-
-                    // Set another timeout for ML5 model loading
                     const ml5Timeout = setTimeout(() => {
                         if (!poseSketchReady) {
+                            if (config.onModelError) {
+                                config.onModelError('Model load timeout');
+                            }
                             markReadyWithoutVideo('ML5 model timeout - proceeding with video only');
-                            // Still try to draw video even without pose detection
                             isRunning = true;
                         }
-                    }, 10000);
+                    }, CONFIG.ML5_MODEL_TIMEOUT_MS);
 
                     bodyPose = ml5.bodyPose('MoveNet', function() {
                         clearTimeout(ml5Timeout);
 
-                        if (poseSketchReady) return; // Already marked ready by timeout
+                        if (poseSketchReady) return;
 
-                        console.log('[PoseSketch] ml5.bodyPose model loaded via callback');
+                        console.log('[PoseSketch] ML5 model loaded');
 
-                        // Check video state
-                        console.log('[PoseSketch] Video element:', video.elt);
-                        console.log('[PoseSketch] Video readyState:', video.elt.readyState);
-                        console.log('[PoseSketch] Video dimensions:', video.elt.videoWidth, 'x', video.elt.videoHeight);
+                        // Notify model is ready
+                        if (config.onModelReady) {
+                            config.onModelReady();
+                        }
 
                         // Start pose detection
                         bodyPose.detectStart(video, gotPoses);
                         modelLoaded = true;
                         isRunning = true;
                         poseSketchReady = true;
+
+                        // Notify fully ready
+                        if (config.onReady) {
+                            config.onReady();
+                        }
 
                         console.log('[PoseSketch] Pose detection started');
                     });

@@ -102,3 +102,226 @@ body {
     color: #9ca3af;
     font-size: 14px;
 }
+
+/* ================================
+   Loading Screen Styles
+   ================================ */
+
+.loading-screen {
+    position: fixed;
+    inset: 0;
+    background: #0a0a0a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.loading-screen.fade-out {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.loading-content {
+    text-align: center;
+    max-width: 400px;
+    padding: 2rem;
+}
+
+.loading-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.5rem;
+}
+
+.loading-subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-bottom: 2rem;
+}
+
+.loading-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    text-align: left;
+}
+
+.loading-step {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: #111;
+    border-radius: 0.5rem;
+    border: 1px solid #222;
+    transition: all 0.3s ease;
+}
+
+.step-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.step-icon .spinner,
+.step-icon .check-icon,
+.step-icon .error-icon {
+    position: absolute;
+}
+
+/* Spinner - hidden by default */
+.step-icon .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #333;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: none;
+}
+
+/* Check icon - hidden by default */
+.step-icon .check-icon {
+    color: #22c55e;
+    font-size: 1.25rem;
+    font-weight: bold;
+    display: none;
+}
+
+/* Error icon - hidden by default */
+.step-icon .error-icon {
+    color: #ef4444;
+    font-size: 1.25rem;
+    font-weight: bold;
+    display: none;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #e5e7eb;
+}
+
+.step-status {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 0.125rem;
+}
+
+/* Pending state - gray dot indicator */
+.loading-step.pending::before {
+    content: '';
+    position: absolute;
+    left: 1rem;
+    width: 8px;
+    height: 8px;
+    background: #4b5563;
+    border-radius: 50%;
+}
+
+.loading-step.pending .step-icon::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: #4b5563;
+    border-radius: 50%;
+}
+
+/* Loading state - show spinner */
+.loading-step.loading {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.loading-step.loading .spinner {
+    display: block;
+}
+
+.loading-step.loading .step-label {
+    color: #93c5fd;
+}
+
+.loading-step.loading .step-status {
+    color: #60a5fa;
+}
+
+/* Success state - show check */
+.loading-step.success {
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.loading-step.success .check-icon {
+    display: block;
+}
+
+.loading-step.success .step-label {
+    color: #86efac;
+}
+
+.loading-step.success .step-status {
+    color: #4ade80;
+}
+
+/* Error state - show X */
+.loading-step.error {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.loading-step.error .error-icon {
+    display: block;
+}
+
+.loading-step.error .step-label {
+    color: #fca5a5;
+}
+
+.loading-step.error .step-status {
+    color: #f87171;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Continue Anyway Button */
+.continue-anyway-btn {
+    margin-top: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    background: #374151;
+    color: #e5e7eb;
+    border: 1px solid #4b5563;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.continue-anyway-btn:hover {
+    background: #4b5563;
+    border-color: #6b7280;
+}
+
+.continue-anyway-btn.hidden {
+    display: none;
+}
+
+/* Hidden utility for main app */
+#mainApp.hidden {
+    display: none;
+}

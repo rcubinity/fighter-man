@@ -34,10 +34,93 @@
     <script src="js/sessionManager.js"></script>
     <script src="js/replayManager.js"></script>
     <script src="js/timelineRenderer.js"></script>
+    <script src="js/initLoader.js"></script>
     <script src="js/app.js"></script>
 </head>
 
 <body class="text-gray-200">
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <h1 class="loading-title">Stage 1: Training Sessions</h1>
+            <p class="loading-subtitle">Initializing application...</p>
+
+            <div class="loading-steps">
+                <!-- Camera Access (first - requests permission) -->
+                <div id="step-camera" class="loading-step pending">
+                    <div class="step-icon">
+                        <div class="spinner"></div>
+                        <span class="check-icon">✓</span>
+                        <span class="error-icon">✗</span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-label">Camera Access</div>
+                        <div class="step-status">Waiting...</div>
+                    </div>
+                </div>
+
+                <!-- Pose Detection Model -->
+                <div id="step-ml5" class="loading-step pending">
+                    <div class="step-icon">
+                        <div class="spinner"></div>
+                        <span class="check-icon">✓</span>
+                        <span class="error-icon">✗</span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-label">Pose Detection Model</div>
+                        <div class="step-status">Waiting...</div>
+                    </div>
+                </div>
+
+                <!-- Video Initialization (combines camera + model) -->
+                <div id="step-video" class="loading-step pending">
+                    <div class="step-icon">
+                        <div class="spinner"></div>
+                        <span class="check-icon">✓</span>
+                        <span class="error-icon">✗</span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-label">Video Preview</div>
+                        <div class="step-status">Waiting...</div>
+                    </div>
+                </div>
+
+                <!-- Server Connection -->
+                <div id="step-socket" class="loading-step pending">
+                    <div class="step-icon">
+                        <div class="spinner"></div>
+                        <span class="check-icon">✓</span>
+                        <span class="error-icon">✗</span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-label">Server Connection</div>
+                        <div class="step-status">Waiting...</div>
+                    </div>
+                </div>
+
+                <!-- Loading Sessions -->
+                <div id="step-sessions" class="loading-step pending">
+                    <div class="step-icon">
+                        <div class="spinner"></div>
+                        <span class="check-icon">✓</span>
+                        <span class="error-icon">✗</span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-label">Loading Sessions</div>
+                        <div class="step-status">Waiting...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Continue Anyway Button (shown on errors) -->
+            <button id="continueAnywayBtn" class="continue-anyway-btn hidden" onclick="InitLoader.showMainApp()">
+                Continue Anyway
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Application (hidden during loading) -->
+    <div id="mainApp" class="hidden">
     <div class="flex flex-col h-screen">
         <!-- Header -->
         <div class="bg-black border-b border-gray-800 px-6 py-4 flex items-center justify-between">
@@ -354,6 +437,7 @@
             </div>
         </div>
     </div>
+    </div><!-- End mainApp -->
 </body>
 
 </html>

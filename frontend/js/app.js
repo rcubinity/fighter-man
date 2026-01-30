@@ -5,24 +5,10 @@
 
 /**
  * Initialize the application when DOM is ready
+ * Uses InitLoader for step-by-step initialization with loading screen
  */
 document.addEventListener('DOMContentLoaded', () => {
-    initFootBars();
-    loadSessions();
-
-    // Initialize activity detector
-    activityDetector = new ActivityDetector();
-
-    // Initialize video recorder if supported
-    if (VideoRecorder.isSupported()) {
-        videoRecorder = new VideoRecorder();
-        console.log('[Video] VideoRecorder initialized');
-    } else {
-        console.warn('[Video] Video recording not supported in this browser');
-    }
-
-    connectSocket();
-    checkActiveSession();
+    InitLoader.run();
 });
 
 // Expose functions to window for HTML onclick handlers
