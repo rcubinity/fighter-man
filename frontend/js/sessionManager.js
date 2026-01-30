@@ -113,7 +113,8 @@ async function deleteSession(sessionId, sessionName) {
         }
 
         const result = await response.json();
-        console.log(`Session deleted: ${result.windows_deleted} windows removed`);
+        const totalDeleted = (result.sensor_windows_deleted || 0) + (result.pose_windows_deleted || 0);
+        console.log(`Session deleted: ${totalDeleted} windows removed (${result.sensor_windows_deleted || 0} sensor, ${result.pose_windows_deleted || 0} pose)`);
 
         // Stop replay if this session is being replayed
         if (replaySessionId === sessionId) {
@@ -127,7 +128,7 @@ async function deleteSession(sessionId, sessionName) {
         // Refresh session list
         await loadSessions();
 
-        alert(`Session deleted successfully (${result.windows_deleted} windows removed)`);
+        alert(`Session deleted successfully (${totalDeleted} windows removed)`);
     } catch (error) {
         console.error('Failed to delete session:', error);
         alert('Failed to delete session');
