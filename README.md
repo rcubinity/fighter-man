@@ -52,6 +52,7 @@ cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bi
 **Send test data:**
 ```bash
 cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bin/activate && python tests/realistic_activity_client.py --activity Standing --duration 300
+cd '/Users/apple/Herd/neuronso/fighter-man/firefighter-server' && source venv/bin/activate && python tests/realistic_activity_client.py --activity Standing --duration 300 --foot-hz 1 --accel-hz 2
 ```
 
 ## Documentation
