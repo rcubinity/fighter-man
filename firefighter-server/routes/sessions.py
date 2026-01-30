@@ -57,6 +57,8 @@ def create_session():
     if active_session:
         store = AppState.get_vector_store()
         store.flush_session(active_session.id)
+        pose_store = AppState.get_pose_store()
+        pose_store.flush_session(active_session.id)
         repo.update(active_session.id, status="stopped", stopped_at=datetime.utcnow())
         logger.info(f"[Session] Auto-stopped: {active_session.id}")
 
@@ -164,8 +166,14 @@ def delete_session(session_id):
     if not repo.get(session_id):
         return jsonify({"error": "Session not found"}), 404
 
+    # Delete sensor data
     store = AppState.get_vector_store()
-    deleted_count = store.delete_session(session_id)
+    sensor_deleted = store.delete_session(session_id)
+
+    # Delete pose data
+    pose_store = AppState.get_pose_store()
+    pose_deleted = pose_store.delete_session_poses(session_id)
+
     repo.delete(session_id)
 
     if AppState.current_session_id == session_id:
@@ -173,7 +181,8 @@ def delete_session(session_id):
 
     return jsonify({
         "message": "Session deleted",
-        "windows_deleted": deleted_count,
+        "sensor_windows_deleted": sensor_deleted,
+        "pose_windows_deleted": pose_deleted,
     })
 
 
@@ -185,9 +194,13 @@ def stop_session(session_id):
     if not session:
         return jsonify({"error": "Session not found"}), 404
 
-    # Flush remaining data
+    # Flush remaining sensor data
     store = AppState.get_vector_store()
     store.flush_session(session_id)
+
+    # Flush remaining pose data
+    pose_store = AppState.get_pose_store()
+    pose_store.flush_session(session_id)
 
     updated = repo.update(session_id, status="stopped", stopped_at=datetime.utcnow())
 

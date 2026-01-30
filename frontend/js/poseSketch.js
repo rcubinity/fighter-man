@@ -160,6 +160,33 @@ function createPoseSketch(containerId, options = {}) {
             if (config.onPoseDetected && poses.length > 0) {
                 config.onPoseDetected(poses[0]);
             }
+
+            // Send pose data to server during recording (throttled)
+            if (isRecording && currentSessionId && poses.length > 0 && window.iotSocket) {
+                const now = Date.now();
+                if (now - lastPoseSentTime >= CONFIG.POSE_SEND_INTERVAL_MS) {
+                    lastPoseSentTime = now;
+
+                    try {
+                        // Format keypoints for the server
+                        const pose = poses[0];
+                        const keypoints = pose.keypoints.map(kp => ({
+                            name: kp.name || kp.part,
+                            x: kp.x,
+                            y: kp.y,
+                            confidence: kp.confidence || kp.score
+                        }));
+
+                        window.iotSocket.emit('pose_data', {
+                            session_id: currentSessionId,
+                            timestamp: now,
+                            keypoints: keypoints
+                        });
+                    } catch (err) {
+                        console.warn('[PoseSketch] Error sending pose data:', err);
+                    }
+                }
+            }
         }
 
         // Draw loop

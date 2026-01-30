@@ -143,3 +143,55 @@ def register_socket_handlers(socketio):
         logger.info(
             f"[Activity] Detected: {activity} ({confidence}%) for session {session_id}"
         )
+
+    @socketio.on("pose_data", namespace=SOCKETIO_NAMESPACE)
+    def handle_pose_data(data):
+        """
+        Handle ml5 pose keypoint data from frontend.
+
+        Expected data: {
+            "session_id": "uuid",
+            "timestamp": float (ms),
+            "keypoints": [
+                {"name": "nose", "x": 320, "y": 100, "confidence": 0.95},
+                {"name": "left_eye", "x": 310, "y": 95, "confidence": 0.92},
+                ...  (17 keypoints total)
+            ],
+            "detected_activity": "Standing" (optional)
+        }
+        """
+        try:
+            session_id = data.get("session_id")
+            timestamp_ms = data.get("timestamp")
+            keypoints = data.get("keypoints", [])
+            detected_activity = data.get("detected_activity")
+
+            if not session_id:
+                return
+
+            # Check if there's an active session and it matches
+            # This prevents race conditions when session is being stopped
+            if not AppState.current_session_id:
+                return  # No active session
+
+            if session_id != AppState.current_session_id:
+                return  # Stale pose data for a stopped session
+
+            # If no activity provided, get from current detected activities
+            if not detected_activity:
+                detected_activity = AppState.get_current_activity_label(session_id)
+
+            pose_store = AppState.get_pose_store()
+            point_id = pose_store.add_pose(
+                session_id=session_id,
+                pose_data={"keypoints": keypoints},
+                timestamp_ms=timestamp_ms,
+                detected_activity=detected_activity,
+            )
+
+            if point_id:
+                logger.info(f"[Pose] Stored pose window: {point_id} (activity: {detected_activity})")
+
+        except Exception as e:
+            logger.error(f"[Pose] Error storing pose data: {e}")
+            # Don't crash the handler - pose collection is supplementary to sensor data

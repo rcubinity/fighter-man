@@ -22,6 +22,9 @@ const CONFIG = {
     // Recording
     RECORDING_TIMER_INTERVAL_MS: 1000,
 
+    // Pose Data
+    POSE_SEND_INTERVAL_MS: 500,  // Send pose data every 500ms to match sensor windows
+
     // Socket.IO
     SOCKET_RECONNECTION_ATTEMPTS: 5,
     SOCKET_RECONNECTION_DELAY_MS: 1000,

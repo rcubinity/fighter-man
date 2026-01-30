@@ -80,7 +80,11 @@ if __name__ == "__main__":
 
     # Initialize vector store on startup
     AppState.get_vector_store()
-    logger.info("[Qdrant] Vector store initialized")
+    logger.info("[Qdrant] Sensor vector store initialized")
+
+    # Initialize pose store on startup
+    AppState.get_pose_store()
+    logger.info("[Qdrant] Pose store initialized")
 
     # Initialize database
     AppState.get_database()

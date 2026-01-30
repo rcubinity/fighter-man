@@ -102,3 +102,37 @@ def get_session_windows_metadata(session_id):
     ]
 
     return jsonify(normalized)
+
+
+@replay_bp.route("/sessions/<session_id>/poses", methods=["GET"])
+def get_session_poses(session_id):
+    """
+    Get all pose windows for a session.
+
+    Query params:
+        include_raw: Include raw keypoint data (default: false)
+
+    Returns:
+        [
+            {
+                "id": str,
+                "start_time": timestamp,
+                "end_time": timestamp,
+                "pose_count": int,
+                "detected_activity": str or null,
+                "raw_poses": [...] (if include_raw=true)
+            },
+            ...
+        ]
+    """
+    repo = AppState.get_session_repo()
+    session = repo.get(session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    include_raw = request.args.get("include_raw", "false").lower() == "true"
+
+    pose_store = AppState.get_pose_store()
+    poses = pose_store.get_session_poses(session_id, include_raw=include_raw)
+
+    return jsonify(poses)

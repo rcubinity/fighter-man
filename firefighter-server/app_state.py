@@ -6,6 +6,7 @@ imported by all modules. Uses class-level attributes for singleton behavior.
 
 from typing import Dict, Any, Optional
 from lib.vector_store import VectorStore
+from lib.pose_store import PoseStore
 from lib.database import Database, SessionRepository
 
 
@@ -13,6 +14,7 @@ class AppState:
     """Shared application state container."""
 
     vector_store: VectorStore = None
+    pose_store: PoseStore = None
     db: Database = None
     session_repo: SessionRepository = None
     current_session_id: str = None
@@ -30,6 +32,13 @@ class AppState:
         if cls.vector_store is None:
             cls.vector_store = VectorStore(cls.config.qdrant)
         return cls.vector_store
+
+    @classmethod
+    def get_pose_store(cls) -> PoseStore:
+        """Get or create pose store instance."""
+        if cls.pose_store is None:
+            cls.pose_store = PoseStore(cls.config.qdrant)
+        return cls.pose_store
 
     @classmethod
     def get_database(cls) -> Database:

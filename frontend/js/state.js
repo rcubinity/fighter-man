@@ -39,3 +39,6 @@ let videoRecorder = null;
 
 // Pose visualization (p5.js based)
 let poseSketch = null;
+
+// Pose data collection
+let lastPoseSentTime = 0;  // Timestamp of last pose data sent to server

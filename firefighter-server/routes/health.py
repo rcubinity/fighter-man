@@ -12,18 +12,23 @@ health_bp = Blueprint('health', __name__)
 def health_check():
     """Server health check."""
     store = AppState.get_vector_store()
-    qdrant_health = store.health_check()
+    qdrant_sensor_health = store.health_check()
+
+    pose_store = AppState.get_pose_store()
+    qdrant_pose_health = pose_store.health_check()
 
     database = AppState.get_database()
     postgres_health = database.health_check()
 
     return jsonify({
         "status": "healthy" if all([
-            qdrant_health["status"] == "healthy",
+            qdrant_sensor_health["status"] == "healthy",
+            qdrant_pose_health["status"] == "healthy",
             postgres_health["status"] == "healthy"
         ]) else "degraded",
         "server": "running",
-        "qdrant": qdrant_health,
+        "qdrant_sensors": qdrant_sensor_health,
+        "qdrant_poses": qdrant_pose_health,
         "postgres": postgres_health,
         "active_session": AppState.current_session_id,
     })

@@ -46,7 +46,7 @@ MAX_READINGS_PER_WINDOW = 10
 
 
 # =============================================================================
-# Vector Dimensions
+# Vector Dimensions (Sensor Data)
 # =============================================================================
 
 FOOT_VECTOR_DIM = FOOT_SENSOR_VALUES * MAX_READINGS_PER_WINDOW  # 180
@@ -57,6 +57,44 @@ ACCEL_VECTOR_DIM = ACCEL_SENSOR_VALUES * MAX_READINGS_PER_WINDOW  # 90
 
 TOTAL_VECTOR_DIM = FOOT_VECTOR_DIM + ACCEL_VECTOR_DIM  # 270
 """Total vector dimension for Qdrant storage."""
+
+
+# =============================================================================
+# Pose Data Dimensions (ml5 MoveNet)
+# =============================================================================
+
+POSE_KEYPOINT_COUNT = 17
+"""Number of body keypoints detected by MoveNet."""
+
+POSE_VALUES_PER_KEYPOINT = 3
+"""Values per keypoint: x, y, confidence."""
+
+POSE_VECTOR_DIM = POSE_KEYPOINT_COUNT * POSE_VALUES_PER_KEYPOINT  # 51
+"""Total pose vector dimension (17 keypoints × 3 values)."""
+
+POSE_COLLECTION_NAME = "pose_windows"
+"""Qdrant collection name for pose data."""
+
+POSE_KEYPOINT_NAMES = [
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
+]
+"""Names of the 17 MoveNet keypoints in order."""
 
 
 # =============================================================================
