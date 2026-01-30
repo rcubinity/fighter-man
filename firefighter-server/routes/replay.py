@@ -136,3 +136,55 @@ def get_session_poses(session_id):
     poses = pose_store.get_session_poses(session_id, include_raw=include_raw)
 
     return jsonify(poses)
+
+
+@replay_bp.route("/sessions/<session_id>/all-data", methods=["GET"])
+def get_session_all_data(session_id):
+    """
+    Get all session data (sensors + poses) in one response.
+
+    Useful for ML training where you need both sensor readings
+    and pose keypoints correlated by timestamp.
+
+    Query params:
+        include_raw: Include raw data for both sensors and poses (default: true)
+
+    Returns:
+        {
+            "session": {session metadata},
+            "sensors": {
+                "total_windows": int,
+                "windows": [{sensor windows with raw_data}, ...]
+            },
+            "poses": {
+                "total_windows": int,
+                "windows": [{pose windows with raw_poses}, ...]
+            }
+        }
+    """
+    repo = AppState.get_session_repo()
+    session = repo.get(session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    include_raw = request.args.get("include_raw", "true").lower() == "true"
+
+    # Get sensor data
+    store = AppState.get_vector_store()
+    sensor_windows = store.get_session_data(session_id, include_raw=include_raw)
+
+    # Get pose data
+    pose_store = AppState.get_pose_store()
+    pose_windows = pose_store.get_session_poses(session_id, include_raw=include_raw)
+
+    return jsonify({
+        "session": session.to_dict(),
+        "sensors": {
+            "total_windows": len(sensor_windows),
+            "windows": sensor_windows
+        },
+        "poses": {
+            "total_windows": len(pose_windows),
+            "windows": pose_windows
+        }
+    })
